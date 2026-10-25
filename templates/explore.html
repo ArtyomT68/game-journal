@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Поиск игр — Game Journal{% endblock %}
+{% block content %}
+{% set STATUS_LABELS = {'completed': '✓ пройдена', 'playing': '▶ прохожу', 'wishlist': '★ в хотелках'} %}
+<div class="page-head">
+  <h2>Поиск игр</h2>
+  <form class="toolbar" method="get" action="{{ url_for('explore') }}">
+    <input class="search" type="search" name="q" value="{{ q }}" placeholder="🔍 Название игры…" autofocus>
+    <button class="btn">Найти</button>
+  </form>
+  {% if not q %}<p class="sub">Найди игру, открой её карточку — там время прохождения, сложность 100% и кнопки «Хочу пройти», «Прохожу» и «Пройдена».</p>{% endif %}
+</div>
+
+{% for e in errors %}<div class="flash error">{{ e }}</div>{% endfor %}
+
+{% if results %}
+  <section class="grid">
+    {% for r in results %}
+      <a class="card" href="{{ url_for('explore_game', source=r.source, ext_id=r.id, title=r.title) }}">
+        <div class="cover">
+          {% if r.cover %}<img src="{{ r.cover }}" alt="" loading="lazy"
+               {% if r.thumb_fallback %}onerror="this.onerror=null; this.src='{{ r.thumb_fallback }}'"{% endif %}>
+          {% else %}<div class="nocover">{{ r.title }}</div>{% endif %}
+          {% if r.in_library %}<span class="badge mine">{{ STATUS_LABELS[r.in_library] }}</span>{% endif %}
+        </div>
+        <div class="meta">
+          <h4 title="{{ r.title }}">{{ r.title }}</h4>
+          <div class="row"><span>{{ r.subtitle }}</span></div>
+        </div>
+      </a>
+    {% endfor %}
+  </section>
+{% elif q and not errors %}
+  <div class="empty">Ничего не найдено. Попробуй название на английском.</div>
+{% endif %}
+{% endblock %}

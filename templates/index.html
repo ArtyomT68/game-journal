@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="stats">
+  <div class="stat"><b>{{ stats.total }}</b><small>игр пройдено</small></div>
+  <div class="stat"><b>{{ stats.minutes | playtime(true) }}</b><small>общее время прохождений</small></div>
+  <div class="stat"><b>{{ stats.full }}</b><small>на 100% достижений</small>
+    <div class="bar"><i style="width:{{ (stats.full * 100 / stats.total) | round if stats.total else 0 }}%"></i></div></div>
+  <div class="stat"><b>{{ stats.this_year }}</b><small>пройдено в {{ stats.year }} году</small></div>
+  <div class="stat"><b>{{ stats.avg_minutes | playtime(true) }}</b><small>среднее время на игру</small></div>
+</section>
+
+<form class="toolbar" method="get">
+  <input class="search" type="search" name="q" value="{{ q }}" placeholder="🔍 Поиск по библиотеке…">
+  {% for key, label in [('all','Все'), ('100','100%'), ('replayed','Перепроходил'), ('year', stats.year|string)] %}
+    <button class="chip {{ 'on' if flt == key }}" name="filter" value="{{ key }}">{{ label }}</button>
+  {% endfor %}
+  <div class="spacer"></div>
+  <label class="chip select">Сортировка:
+    <select name="sort" onchange="this.form.submit()">
+      {% for key, label in sort_labels.items() %}
+        <option value="{{ key }}" {{ 'selected' if sort == key }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <input type="hidden" name="filter" value="{{ flt }}">
+</form>
+
+{% if games %}
+  <section class="grid">
+    {% for g in games %}{% include "_card.html" %}{% endfor %}
+  </section>
+{% else %}
+  <div class="empty">
+    {% if q or flt != 'all' %}Ничего не найдено.
+    {% else %}Библиотека пока пуста. <button class="linkbtn" type="button" data-open-add>Добавь первую пройденную игру</button>.{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

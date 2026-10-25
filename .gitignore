@@ -1,0 +1,17 @@
+# Окружение Python
+.venv/
+__pycache__/
+*.pyc
+
+# Личные данные: база (в ней в том числе ключ Steam API), обложки, импортированные списки
+data/
+static/covers/*
+!static/covers/.gitkeep
+import/
+
+# Системное
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

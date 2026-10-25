@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Импорт — Game Journal{% endblock %}
+{% block content %}
+<div class="panel">
+  <h2>Импорт из Steam</h2>
+  {% if not configured %}
+    <p class="sub">Укажи ключ Steam API и профиль на странице <a href="{{ url_for('settings') }}">Настройки</a> —
+      здесь появятся игры из твоего аккаунта, которых ещё нет в библиотеке.</p>
+  {% elif error %}
+    <div class="flash error">{{ error }}</div>
+  {% elif not owned %}
+    <p class="sub">Все игры из Steam, в которые ты играл, уже в библиотеке.</p>
+  {% else %}
+    <p class="sub">Игры из аккаунта, которых нет в библиотеке (по наигранному времени). Добавь те, что прошёл.</p>
+    <div class="import-list">
+      {% for g in owned %}
+        <form method="post" action="{{ url_for('add_from_catalog') }}" class="result" data-busy="Добавляю…">
+          <img src="{{ cover_url(g.appid) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+          <div class="t"><b>{{ g.name }}</b><small>{{ g.playtime_forever | playtime }} в Steam</small></div>
+          <input type="hidden" name="source" value="steam">
+          <input type="hidden" name="id" value="{{ g.appid }}">
+          <input type="hidden" name="title" value="{{ g.name }}">
+          <button class="btn small">Добавить</button>
+        </form>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

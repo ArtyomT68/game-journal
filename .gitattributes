@@ -1,0 +1,2 @@
+# start.bat работает только с переводами строк Windows (CRLF) — иначе cmd ломает команды
+*.bat text eol=crlf

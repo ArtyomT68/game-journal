@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Game Journal{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="{{ url_for('index') }}"><i></i>Game Journal</a>
+  <nav class="nav">
+    {% set ep = request.endpoint %}
+    <a href="{{ url_for('index') }}" class="{{ 'on' if ep == 'index' }}">Библиотека</a>
+    <a href="{{ url_for('playing') }}" class="{{ 'on' if ep == 'playing' }}">Сейчас прохожу
+      {%- if playing_count %} <span class="count">{{ playing_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('wishlist') }}" class="{{ 'on' if ep == 'wishlist' }}">Хочу пройти
+      {%- if wishlist_count %} <span class="count wish">{{ wishlist_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('timeline') }}" class="{{ 'on' if ep == 'timeline' }}">Хронология</a>
+    <a href="{{ url_for('import_page') }}" class="{{ 'on' if ep == 'import_page' }}">Импорт</a>
+    <a href="{{ url_for('settings') }}" class="{{ 'on' if ep == 'settings' }}">Настройки</a>
+  </nav>
+  <div class="spacer"></div>
+  <form class="topsearch" method="get" action="{{ url_for('explore') }}">
+    <input type="search" name="q" placeholder="🔍 Найти игру…" value="{{ request.args.get('q', '') if ep == 'explore' else '' }}">
+  </form>
+  <form method="post" action="{{ url_for('steam_sync_route') }}" class="inline" data-busy="Синхронизация…">
+    <button class="btn steam" type="submit" title="Синхронизировать Steam">⟳ Steam</button>
+  </form>
+  {% if ep == 'playing' %}
+    <button class="btn" type="button" data-open-add="playing">+ Начать игру</button>
+  {% elif ep == 'wishlist' %}
+    <button class="btn" type="button" data-open-add="wishlist">+ В хотелки</button>
+  {% else %}
+    <button class="btn" type="button" data-open-add title="Добавить пройденную игру">+ Пройденная игра</button>
+  {% endif %}
+</header>
+
+<main class="wrap">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<div class="overlay" id="add-modal" hidden>
+  <div class="modal">
+    <button class="close" type="button" data-close-add aria-label="Закрыть">×</button>
+    <h3 id="add-heading" data-playing="Начать игру" data-wishlist="Добавить в «Хочу пройти»" data-completed="Добавить пройденную игру">Добавить пройденную игру</h3>
+    <p class="sub">Начни вводить название — обложка и данные подтянутся из базы игр</p>
+    <input class="input" id="add-search" type="search" placeholder="Например, Hollow Knight" autocomplete="off">
+    <div id="add-results" class="results"></div>
+    <p class="sub foot">Не нашёл? <a id="add-manual" href="{{ url_for('new_game') }}">Добавить вручную</a> со своей обложкой</p>
+  </div>
+</div>
+
+<form id="add-form" method="post" action="{{ url_for('add_from_catalog') }}" hidden>
+  <input type="hidden" name="source"><input type="hidden" name="id"><input type="hidden" name="title">
+  <input type="hidden" name="status" value="completed">
+</form>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

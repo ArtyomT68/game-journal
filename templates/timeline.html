@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Хронология — Game Journal{% endblock %}
+{% block content %}
+{% for year, games in years.items() %}
+  <h2 class="year">{{ year }} <small>{{ games | length }} {{ 'игра' if games|length % 10 == 1 and games|length % 100 != 11 else 'игр' }} ·
+    {{ games | map(attribute='playtime_minutes') | select | sum | playtime(true) }}</small></h2>
+  <section class="grid">
+    {% for g in games %}{% include "_card.html" %}{% endfor %}
+  </section>
+{% else %}
+  <div class="empty">Пока нечего показать.</div>
+{% endfor %}
+{% endblock %}

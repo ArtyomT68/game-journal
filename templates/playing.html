@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Сейчас прохожу — Game Journal{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Сейчас прохожу</h2>
+  <p class="sub">Игры в процессе. Когда пройдёшь, открой карточку и нажми «Пройдено ✓», и игра переедет в библиотеку.</p>
+</div>
+
+{% if games %}
+  <section class="grid">
+    {% for g in games %}{% include "_card.html" %}{% endfor %}
+  </section>
+{% else %}
+  <div class="empty">
+    Сейчас ничего не проходишь. <button class="linkbtn" type="button" data-open-add="playing">Начать игру</button>.
+  </div>
+{% endif %}
+{% endblock %}

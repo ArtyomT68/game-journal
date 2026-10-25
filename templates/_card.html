@@ -1,0 +1,19 @@
+<a class="card" href="{{ url_for('edit_game', game_id=g.id) }}">
+  <div class="cover">
+    {% if g.cover %}<img src="{{ g.cover | cover_url }}" alt="" loading="lazy">
+    {% else %}<div class="nocover">{{ g.title }}</div>{% endif %}
+    {% if g.completion_percent is not none %}
+      <span class="badge {{ 'p100' if g.completion_percent == 100 }}">{{ g.completion_percent }}%</span>
+    {% endif %}
+    {% if g.times_completed > 1 %}<span class="runs">×{{ g.times_completed }}</span>{% endif %}
+  </div>
+  <div class="meta">
+    <h4 title="{{ g.title }}">{{ g.title }}</h4>
+    {% if g.status == 'playing' %}
+      <div class="row"><span>{{ g.playtime_minutes | playtime(true) }}</span><span>с {{ g.started_on | ru_date }}</span></div>
+    {% else %}
+      <div class="row"><span>{{ g.playtime_minutes | playtime(true) }}</span><span>{{ g.completed_on | ru_date }}</span></div>
+    {% endif %}
+    <div class="prog"><i class="{{ 'full' if g.completion_percent == 100 }}" style="width:{{ g.completion_percent or 0 }}%"></i></div>
+  </div>
+</a>

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Хочу пройти — Game Journal{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Хочу пройти</h2>
+  <p class="sub">Очередь на прохождение: сверху то, что в приоритете. Стрелками меняй порядок, «▶» переносит игру в «Сейчас прохожу».
+    Время, интерес и гринд для 100% считаются по данным HowLongToBeat и Steam.</p>
+</div>
+
+{% if games %}
+  <ol class="wishlist">
+    {% for g in games %}
+      {% set verdict = hundred_verdict(g) %}
+      <li class="wish" id="g{{ g.id }}">
+        <span class="rank">{{ loop.index }}</span>
+        <a class="wish-cover" href="{{ url_for('edit_game', game_id=g.id) }}">
+          {% if g.cover %}<img src="{{ g.cover | cover_url }}" alt="" loading="lazy">{% endif %}
+        </a>
+        <div class="wish-main">
+          <a class="wish-title" href="{{ url_for('edit_game', game_id=g.id) }}">{{ g.title }}</a>
+          <div class="wish-sub">{{ [g.release_year, g.genres] | select | join(' · ') }}</div>
+          <div class="wish-tags">
+            {% if g.steam_global_ach_total %}
+              <span class="tag plain" title="Самое редкое достижение есть у {{ g.steam_global_rarest }}% игроков">
+                🏆 {{ g.steam_global_ach_total }} дост. · 100%: {{ rarity_label(g.steam_global_rarest) }} (≤{{ g.steam_global_rarest }}%)</span>
+            {% endif %}
+            {% if g.hltb_main %}<span class="tag plain">сюжет ~{{ g.hltb_main | round | int }} ч</span>{% endif %}
+            {% if g.hltb_100 %}<span class="tag plain">100% ~{{ g.hltb_100 | round | int }} ч</span>{% endif %}
+            {% if g.auto_fun %}<span class="tag plain">интерес {{ g.auto_fun }}/5</span>{% endif %}
+            {% if g.auto_grind %}<span class="tag plain">гринд {{ g.auto_grind }}/5</span>{% endif %}
+            {% if verdict %}<span class="verdict small {{ verdict.cls }}">{{ verdict.text }}</span>{% endif %}
+          </div>
+          {% if g.note %}<div class="wish-note">{{ g.note }}</div>{% endif %}
+        </div>
+        <div class="wish-actions">
+          <form method="post" action="{{ url_for('move_wish', game_id=g.id) }}">
+            <button class="icon" name="dir" value="up" title="Выше" {{ 'disabled' if loop.first }}>↑</button>
+            <button class="icon" name="dir" value="down" title="Ниже" {{ 'disabled' if loop.last }}>↓</button>
+          </form>
+          <form method="post" action="{{ url_for('start_game', game_id=g.id) }}">
+            <button class="btn small">▶ Начать</button>
+          </form>
+        </div>
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  <div class="empty">
+    Список пуст. <button class="linkbtn" type="button" data-open-add="wishlist">Добавь игру, которую хочешь пройти</button>.
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Добавить вручную — Game Journal{% endblock %}
+{% block content %}
+<div class="panel narrow">
+  <h2>{{ {'playing': 'Начать игру вручную', 'wishlist': 'Добавить в хотелки вручную'}.get(status, 'Добавить игру вручную') }}</h2>
+  <p class="sub">Для игр, которых нет в базе. Статистику заполнишь на следующем шаге.</p>
+  <form method="post" enctype="multipart/form-data" class="fields">
+    <input type="hidden" name="status" value="{{ status }}">
+    <div class="f wide"><label for="title">Название *</label>
+      <input class="input" id="title" name="title" required value="{{ form.title or '' }}"></div>
+    <div class="f"><label for="release_year">Год выхода</label>
+      <input class="input" id="release_year" name="release_year" type="number" min="1950" max="2100" value="{{ form.release_year or '' }}"></div>
+    <div class="f"><label for="developer">Разработчик</label>
+      <input class="input" id="developer" name="developer" value="{{ form.developer or '' }}"></div>
+    <div class="f wide"><label for="genres">Жанры</label>
+      <input class="input" id="genres" name="genres" placeholder="RPG, Экшен" value="{{ form.genres or '' }}"></div>
+    <div class="f"><label for="cover_file">Обложка — файл</label>
+      <input class="input" id="cover_file" type="file" name="cover_file" accept="image/*"></div>
+    <div class="f"><label for="cover_url">…или ссылка на картинку</label>
+      <input class="input" id="cover_url" name="cover_url" placeholder="https://…" value="{{ form.cover_url or '' }}"></div>
+    <div class="actions wide">
+      <a class="btn ghost" href="{{ url_for({'playing': 'playing', 'wishlist': 'wishlist'}.get(status, 'index')) }}">Отмена</a>
+      <button class="btn" type="submit">Добавить</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

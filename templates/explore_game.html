@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ info.title }} — Game Journal{% endblock %}
+{% block content %}
+<div class="panel edit">
+  <div class="side">
+    <div class="poster">
+      {% if cover %}<img src="{{ cover }}" alt=""
+           {% if info.header_image %}onerror="this.onerror=null; this.src='{{ info.header_image }}'"{% endif %}>
+      {% else %}<div class="nocover">{{ info.title }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="main">
+    <h1 class="preview-title">{{ info.title }}</h1>
+    <p class="sub">
+      {{ [info.release_year, info.developer, info.genres] | select | join(' · ') }}
+      {% if source == 'steam' %} · <a href="https://store.steampowered.com/app/{{ ext_id }}" target="_blank" rel="noopener">страница в Steam</a>{% endif %}
+    </p>
+    {% if info.description %}<p class="preview-desc">{{ info.description }}</p>{% endif %}
+
+    <div class="hundred" id="estimate"
+         data-title="{{ info.title }}" data-year="{{ info.release_year or '' }}"
+         data-appid="{{ ext_id if source == 'steam' else '' }}">
+      <p class="legend-like">Прохождение и 100% достижений</p>
+      {% if rarity %}
+        <p class="hint steam-rarity">
+          В Steam {{ rarity.total }} достижений. Самое редкое есть у {{ rarity.rarest }}% игроков —
+          значит, 100% не больше чем у {{ rarity.rarest }}%. Сложность: <b>{{ rarity_label(rarity.rarest) }}</b>.
+        </p>
+      {% endif %}
+      <div class="hundred-grid auto">
+        <div><label>Сюжет</label><b class="hours" data-field="main">…</b></div>
+        <div><label>Интерес закрывать</label><span data-field="fun">…</span></div>
+        <div><label>Гринд и трата времени</label><span data-field="grind">…</span></div>
+      </div>
+      <p class="hint" data-field="full"></p>
+      <ul class="reasons" data-field="reasons"></ul>
+      <p class="verdict" data-field="verdict" hidden></p>
+      <p class="hint" data-field="status">Загружаю данные HowLongToBeat…</p>
+    </div>
+
+    {% if mine %}
+      {% set where = {'completed': '✓ Пройдена', 'playing': '▶ Сейчас прохожу', 'wishlist': '★ В хотелках'}[mine.status] %}
+      <div class="mine-box">
+        <p class="mine-title">У меня: {{ where }}</p>
+        <p class="hint">
+          {% if mine.status == 'completed' %}
+            {% set parts = [
+                 mine.completed_on | ru_date if mine.completed_on,
+                 mine.playtime_minutes | playtime if mine.playtime_minutes is not none,
+                 '%d%%' % mine.completion_percent if mine.completion_percent is not none,
+                 'пройдена %d раза' % mine.times_completed if mine.times_completed > 1] | select | list %}
+            {{ parts | join(' · ') if parts else 'статистика прохождения не заполнена' }}
+            {% if mine.hundred_fun or mine.hundred_grind %}
+              <br>Моё впечатление о 100%: интерес {{ mine.hundred_fun or '—' }}/5, гринд {{ mine.hundred_grind or '—' }}/5
+              {%- if mine.hundred_hours %}, {{ mine.hundred_hours }} ч{% endif %}
+            {% endif %}
+          {% elif mine.status == 'playing' %}
+            начал {{ mine.started_on | ru_date }} · наиграно {{ mine.playtime_minutes | playtime }}
+          {% else %}
+            в очереди на прохождение
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+
+    {% if mine %}
+    <div class="actions add-actions">
+      <a class="btn ghost" href="javascript:history.back()" style="margin-right:auto">← Назад</a>
+      <a class="btn" href="{{ url_for('edit_game', game_id=mine.id) }}">Открыть мою карточку</a>
+    </div>
+    {% else %}
+    <form method="post" action="{{ url_for('add_from_catalog') }}" class="actions add-actions">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input type="hidden" name="id" value="{{ ext_id }}">
+      <input type="hidden" name="title" value="{{ info.title }}">
+      <a class="btn ghost" href="javascript:history.back()" style="margin-right:auto">← Назад</a>
+      <button class="btn ghost" name="status" value="completed" data-busy-btn="Добавляю…">✓ Пройдена</button>
+      <button class="btn ghost" name="status" value="playing" data-busy-btn="Добавляю…">▶ Прохожу</button>
+      <button class="btn" name="status" value="wishlist" data-busy-btn="Добавляю…">★ Хочу пройти</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

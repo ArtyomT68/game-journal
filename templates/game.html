@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ game.title }} — Game Journal{% endblock %}
+{% block content %}
+{# form — введённые данные, если сохранение не прошло валидацию #}
+{% set v = form or {} %}
+{% set is_playing = game.status == 'playing' %}
+{% set is_wish = game.status == 'wishlist' %}
+{% macro dots(value, kind) %}<span class="dots {{ kind }}">
+  {%- for i in range(1, 6) %}<i class="{{ 'on' if value and i <= value }}"></i>{% endfor -%}
+  <b>{{ value ~ '/5' if value else 'нет данных' }}</b></span>{% endmacro %}
+{% macro val(name, current) %}{{ form[name] if form else (current if current is not none else '') }}{% endmacro %}
+<div class="panel edit">
+  <div class="side">
+    <div class="poster">
+      {% if game.cover %}<img src="{{ game.cover | cover_url }}" alt="">
+      {% else %}<div class="nocover">{{ game.title }}</div>{% endif %}
+    </div>
+    {% if game.steam_synced_at %}
+      <div class="steamline">
+        ◉ Steam: {{ game.steam_playtime_minutes | playtime }}
+        {% if game.steam_ach_total %}· {{ game.steam_ach_unlocked }}/{{ game.steam_ach_total }} достижений{% endif %}
+        {% if game.steam_last_unlock %}<br>последнее достижение: {{ game.steam_last_unlock | ru_date }}{% endif %}
+      </div>
+    {% elif game.steam_appid and not is_wish %}
+      <div class="steamline muted">Steam-данных пока нет — нажми «Синхронизировать Steam»</div>
+    {% endif %}
+  </div>
+
+  <form method="post" enctype="multipart/form-data" class="main">
+    {% if is_playing %}<span class="status-pill">▶ Сейчас прохожу</span>
+    {% elif is_wish %}<span class="status-pill wishpill">★ Хочу пройти</span>{% endif %}
+    <input class="title-input" name="title" value="{{ v.title or game.title }}" aria-label="Название">
+    <p class="sub">
+      {{ [game.release_year, game.developer, game.genres] | select | join(' · ') or 'Добавлена вручную' }}
+      {% if game.steam_appid %} · <a href="https://store.steampowered.com/app/{{ game.steam_appid }}" target="_blank" rel="noopener">страница в Steam</a>{% endif %}
+    </p>
+    {% if is_new %}<p class="hint">Игра добавлена — заполни поля и нажми «Сохранить». Пустые поля можно оставить.</p>{% endif %}
+
+    <div class="fields">
+      {% if not is_wish %}
+        <div class="f"><label for="playtime">{{ 'Наиграно' if is_playing else 'Время прохождения' }}</label>
+          <input class="input" id="playtime" name="playtime" placeholder="61 ч 24 мин"
+                 value="{{ v.playtime if form else (game.playtime_minutes | playtime if game.playtime_minutes is not none else '') }}"></div>
+      {% endif %}
+      {% if is_playing %}
+        <div class="f"><label for="started_on">Начал проходить</label>
+          <input class="input" id="started_on" type="date" name="started_on" value="{{ val('started_on', game.started_on) }}"></div>
+      {% elif not is_wish %}
+        <div class="f"><label for="completed_on">Дата прохождения</label>
+          <input class="input" id="completed_on" type="date" name="completed_on" value="{{ val('completed_on', game.completed_on) }}"></div>
+        <div class="f"><label for="times">Количество прохождений</label>
+          <div class="stepper">
+            <button type="button" data-step="-1">−</button>
+            <input id="times" name="times_completed" inputmode="numeric" value="{{ val('times_completed', game.times_completed) }}">
+            <button type="button" data-step="1">+</button>
+          </div></div>
+      {% endif %}
+      {% if not is_wish %}
+        <div class="f"><label for="percent">{{ 'Прогресс, %' if is_playing else 'Процент прохождения' }}</label>
+          <div class="percent">
+            <input class="input" id="percent" type="number" min="0" max="100" name="completion_percent" placeholder="0–100"
+                   value="{{ val('completion_percent', game.completion_percent) }}">
+            {% if game.steam_ach_total %}
+              <button type="button" class="btn ghost small" data-fill="#percent"
+                      data-value="{{ (game.steam_ach_unlocked * 100 / game.steam_ach_total) | round | int }}">из Steam</button>
+            {% endif %}
+          </div></div>
+      {% endif %}
+
+      <fieldset class="f wide hundred">
+        <legend>100% достижений</legend>
+        {% if game.steam_global_ach_total %}
+          <p class="hint steam-rarity">
+            В Steam {{ game.steam_global_ach_total }} достижений. Самое редкое есть у {{ game.steam_global_rarest }}% игроков —
+            значит, 100% не больше чем у {{ game.steam_global_rarest }}%. Сложность: <b>{{ rarity_label(game.steam_global_rarest) }}</b>.
+          </p>
+        {% elif game.steam_global_ach_total == 0 %}
+          <p class="hint">У игры нет достижений в Steam.</p>
+        {% endif %}
+        {% if is_wish or is_playing %}
+          {# у хотелок и начатых игр оценка считается по данным из интернета, руками не ставится #}
+          {% if game.auto_checked_at %}
+            <div class="hundred-grid auto">
+              <div><label>Интерес закрывать</label>{{ dots(game.auto_fun, 'fun') }}</div>
+              <div><label>Гринд и трата времени</label>{{ dots(game.auto_grind, 'grind') }}</div>
+              <div><label>Время</label>
+                <b class="hours">{{ '~%d ч на 100%%' % game.hltb_100 if game.hltb_100 else '—' }}</b>
+                {% if game.hltb_main %}<small>сюжет ~{{ game.hltb_main | round | int }} ч</small>{% endif %}</div>
+            </div>
+            {% if game.auto_reasons %}
+              <ul class="reasons">{% for r in game.auto_reasons.split('\n') %}<li>{{ r }}</li>{% endfor %}</ul>
+            {% else %}
+              <p class="hint">Данных пока нет: игра могла ещё не выйти или о ней слишком мало статистики.</p>
+            {% endif %}
+            <p class="hint">Источники: HowLongToBeat{% if game.hltb_id %} (<a href="https://howlongtobeat.com/game/{{ game.hltb_id }}" target="_blank" rel="noopener">страница игры</a>){% endif %}, достижения Steam. Обновлено {{ game.auto_checked_at[:10] | ru_date }}.</p>
+          {% else %}
+            <p class="hint">Оценки ещё нет.</p>
+          {% endif %}
+          <button class="btn ghost small" type="submit" name="action" value="estimate" data-busy-btn="Считаю…">⟳ Обновить оценку</button>
+        {% else %}
+          <p class="mine-title">Моё впечатление</p>
+          <div class="hundred-grid">
+            <div><label>Интерес закрывать</label>
+              <div class="rating" data-rating>
+                {% for i in range(1, 6) %}<button type="button" data-v="{{ i }}">{{ i }}</button>{% endfor %}
+                <input type="hidden" name="hundred_fun" value="{{ val('hundred_fun', game.hundred_fun) }}">
+              </div>
+              <small>1 — скучно, 5 — в удовольствие</small></div>
+            <div><label>Гринд и трата времени</label>
+              <div class="rating grind" data-rating>
+                {% for i in range(1, 6) %}<button type="button" data-v="{{ i }}">{{ i }}</button>{% endfor %}
+                <input type="hidden" name="hundred_grind" value="{{ val('hundred_grind', game.hundred_grind) }}">
+              </div>
+              <small>1 — почти нет, 5 — сплошной гринд</small></div>
+            <div><label for="hundred_hours">Время на 100%, ч</label>
+              <input class="input" id="hundred_hours" name="hundred_hours" type="number" min="0"
+                     placeholder="{{ game.hltb_100 | round | int if game.hltb_100 else 'например, 60' }}"
+                     value="{{ val('hundred_hours', game.hundred_hours) }}"></div>
+          </div>
+          {% if game.auto_checked_at and (game.auto_fun or game.auto_grind) %}
+            <p class="hint">По данным из интернета: интерес {{ game.auto_fun or '—' }}/5, гринд {{ game.auto_grind or '—' }}/5
+              {%- if game.hltb_100 %}, ~{{ game.hltb_100 | round | int }} ч на 100%{% endif %}.</p>
+          {% endif %}
+        {% endif %}
+        {% set verdict = hundred_verdict(game) %}
+        {% if verdict %}<p class="verdict {{ verdict.cls }}">{{ verdict.text }}</p>{% endif %}
+      </fieldset>
+
+      <div class="f wide"><label for="note">Заметка</label>
+        <textarea class="input" id="note" name="note" rows="3"
+                  placeholder="{{ 'Почему хочу пройти, на какой платформе…' if is_wish else 'Концовка, сложность, впечатления…' }}">{{ v.note if form else (game.note or '') }}</textarea></div>
+      <div class="f wide"><label for="cover_file">Заменить обложку</label>
+        <input class="input" id="cover_file" type="file" name="cover_file" accept="image/*"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn danger" type="submit" form="delete-form">Удалить игру</button>
+      <a class="btn ghost" href="{{ url_for({'playing': 'playing', 'wishlist': 'wishlist'}.get(game.status, 'index')) }}">Отмена</a>
+      {% if is_playing %}
+        <button class="btn ghost" type="submit">Сохранить</button>
+        <button class="btn finish" type="submit" name="action" value="finish">Пройдено ✓</button>
+      {% elif is_wish %}
+        <button class="btn ghost" type="submit">Сохранить</button>
+        <button class="btn" type="submit" name="action" value="start">▶ Начать проходить</button>
+      {% else %}
+        {# «Сохранить» стоит первым в разметке, чтобы Enter в поле сохранял, а не перепроходил #}
+        <button class="btn" type="submit" style="order: 2">Сохранить</button>
+        <button class="btn ghost" type="submit" name="action" value="replay"
+                title="Перенести в «Сейчас прохожу»; после завершения добавится ещё одно прохождение">↻ Перепройти</button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<form id="delete-form" method="post" action="{{ url_for('delete_game', game_id=game.id) }}"
+      data-confirm="Удалить «{{ game.title }}»?"></form>
+{% endblock %}

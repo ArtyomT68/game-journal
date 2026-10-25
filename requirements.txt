@@ -1,0 +1,4 @@
+Flask>=3.1
+requests>=2.32
+charset-normalizer>=3.3
+howlongtobeatpy>=1.0
