@@ -63,7 +63,7 @@
 
 1. Скачай проект (кнопка **Code → Download ZIP** на GitHub) и распакуй, или склонируй:
    ```bat
-   git clone https://github.com/ArtyomT68/game-journal.git
+   git clone https://github.com/WhiteHio/game-journal.git
    ```
 2. Дважды щёлкни **`start.bat`**.
    При первом запуске он сам создаст виртуальное окружение и установит зависимости
