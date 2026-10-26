@@ -1,11 +1,14 @@
 @echo off
 rem Game Journal launcher.
-rem  - Portable build (from GitHub Releases): runs the bundled python\python.exe, nothing to install.
+rem  - Portable build (GameJournal-...-windows.zip from GitHub Releases): runs the bundled
+rem    python\python.exe, nothing to install.
 rem  - Source code: creates .venv on first run, reinstalls packages when requirements.txt changes.
 cd /d "%~dp0"
 if exist "python\python.exe" goto portable
 
 if exist ".venv\Scripts\python.exe" goto deps
+where py >nul 2>&1
+if errorlevel 1 goto nopython
 echo First run: creating virtual environment...
 py -m venv .venv
 if errorlevel 1 goto fail
@@ -28,9 +31,24 @@ goto :eof
 pause
 goto :eof
 
+:nopython
+echo.
+echo  This folder contains only the SOURCE CODE, and Python is not installed.
+echo.
+echo  To run Game Journal without installing anything:
+echo    1. Open the Releases page of the project on GitHub.
+echo    2. In "Assets" download GameJournal-...-windows.zip
+echo       (NOT "Source code (zip)").
+echo    3. Unpack it and run start.bat from there.
+echo.
+echo  Or install Python 3.11+ from python.org and run this start.bat again.
+echo.
+pause
+goto :eof
+
 :fail
 echo.
 echo Setup failed. Make sure Python 3.11+ is installed and "py" works in cmd,
-echo or download the portable build from the Releases page on GitHub.
+echo or download GameJournal-...-windows.zip from the Releases page on GitHub.
 if exist ".venv" rmdir /s /q ".venv"
 pause

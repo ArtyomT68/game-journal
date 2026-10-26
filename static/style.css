@@ -248,3 +248,4 @@ textarea.input { resize: vertical; }
 @media (max-width: 700px) { .reco-head { flex-direction: column; } }
 /* на средних экранах в шапке тесно: оставляем у логотипа только значок */
 @media (max-width: 1500px) { .logo span { display: none; } }
+.reco-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }

@@ -291,7 +291,18 @@ def register_routes(app: Flask):
         return render_template(
             "recommendations.html", recs=recs, status=status, profile=profile,
             cover_url=catalog.steam_cover_url, loads=json.loads,
+            year_filters=recommend.YEAR_FILTERS, year_filter=recommend.year_filter(db),
         )
+
+    @app.post("/recommendations/years")
+    def recommendations_years():
+        """Меняет фильтр по годам выхода и сразу пересчитывает рекомендации."""
+        value = request.form.get("years", "all")
+        if value in recommend.YEAR_FILTERS:
+            set_setting("reco_years", value)
+            if not recommend.start(app.config["DATABASE"]):
+                flash("Фильтр сохранён — он применится после текущего расчёта.", "ok")
+        return redirect(url_for("recommendations"))
 
     @app.post("/recommendations/refresh")
     def recommendations_refresh():

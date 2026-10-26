@@ -6,11 +6,23 @@
   <div>
     <h2>Рекомендации</h2>
     <p class="sub">Игры, похожие на то, что ты прошёл и хочешь пройти. Подбор идёт по тегам Steam:
-      пройденные игры важнее хотелок, а перепройденные, закрытые на 100% и высоко оценённые — ещё важнее.</p>
+      пройденные игры важнее хотелок, а перепройденные, закрытые на 100% и высоко оценённые — ещё важнее.
+      Новым играм — небольшой приоритет; при каждом обновлении уже показанные игры уступают место другим.</p>
   </div>
-  <form method="post" action="{{ url_for('recommendations_refresh') }}">
-    <button class="btn" {{ 'disabled' if running }}>⟳ Обновить рекомендации</button>
-  </form>
+  <div class="reco-controls">
+    <form method="post" action="{{ url_for('recommendations_years') }}">
+      <label class="chip select">Годы выхода:
+        <select name="years" onchange="this.form.submit()" {{ 'disabled' if running }}>
+          {% for key, (label, _) in year_filters.items() %}
+            <option value="{{ key }}" {{ 'selected' if key == year_filter }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    <form method="post" action="{{ url_for('recommendations_refresh') }}">
+      <button class="btn" {{ 'disabled' if running }}>⟳ Обновить рекомендации</button>
+    </form>
+  </div>
 </div>
 
 {% if running %}
@@ -42,7 +54,7 @@
         </a>
         <div class="meta">
           <a class="reco-name" href="{{ url_for('explore_game', source='steam', ext_id=r.appid, title=r.name) }}" title="{{ r.name }}">{{ r.name }}</a>
-          <div class="row"><span>👍 {{ (r.rating * 100) | round | int }}% отзывов</span></div>
+          <div class="row"><span>👍 {{ (r.rating * 100) | round | int }}% отзывов</span><span>{{ r.release_year or '' }}</span></div>
           {% set similar = loads(r.similar) %}
           {% if similar %}<div class="reco-similar">похожа на: {{ similar | join(', ') }}</div>{% endif %}
           <div class="reco-tags">{% for t in loads(r.tags) %}<span>{{ t }}</span>{% endfor %}</div>

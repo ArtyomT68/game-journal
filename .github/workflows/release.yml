@@ -33,6 +33,15 @@ jobs:
         with:
           files: dist/*.zip
           generate_release_notes: true
+          # GitHub сам добавляет к релизу «Source code (zip)» — без Python; подсказываем, что качать
+          body: |
+            ## Как установить
+            1. Ниже в **Assets** скачай **`GameJournal-${{ github.ref_name }}-windows.zip`**
+               (не «Source code» — там только исходный код без Python).
+            2. Распакуй в любую папку и запусти **`start.bat`** — сайт откроется в браузере.
+
+            Python устанавливать не нужно. Обновление: распакуй новую версию в новую папку
+            и перенеси из старой папки `data/` и `static/covers/`.
 
       - name: Keep as artifact
         uses: actions/upload-artifact@v4

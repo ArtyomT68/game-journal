@@ -15,6 +15,7 @@ SteamSpy разрешает примерно один запрос в секун
 """
 import json
 import math
+import random
 import re
 import sqlite3
 import threading
@@ -23,12 +24,29 @@ from datetime import datetime
 
 import requests
 
+import catalog
+
 STEAMSPY = "https://steamspy.com/api.php"
 REQUEST_PAUSE = 1.0          # SteamSpy: не чаще раза в секунду
 TOP_TAGS_PER_GAME = 15
-PROFILE_TAGS_FOR_SEARCH = 8  # по скольким любимым тегам искать кандидатов
-CANDIDATES_TO_CHECK = 60     # сколько лучших кандидатов проверять по полным тегам
+PROFILE_TAGS_FIXED = 6       # самые любимые теги — по ним ищем всегда
+PROFILE_TAGS_RANDOM = 4      # плюс несколько случайных из следующих — чтобы выдача менялась
+CANDIDATES_TO_CHECK = 70     # сколько кандидатов проверять по полным тегам
 RESULTS = 30
+SHOWN_PENALTY = 0.85         # показ в прошлой выдаче немного снижает место игры (разнообразие при обновлении)
+JITTER = 0.08                # небольшая случайность в оценке: ±8%
+MIN_MATCH = 0.40             # слабее совпадение с профилем — не рекомендуем, даже ради разнообразия
+
+# Фильтр по годам выхода: (подпись, с какого года). None — без ограничения.
+YEAR_FILTERS = {
+    "all": ("любые годы", None),
+    "2015": ("с 2015 года", 2015),
+    "recent": ("последние 5 лет", datetime.now().year - 4),
+}
+# Грубая оценка года по номеру приложения в Steam (номера выдаются по порядку) —
+# чтобы не проверять заведомо старые игры, когда включён фильтр по годам
+APPID_YEARS = [(250_000, 2013), (400_000, 2015), (600_000, 2017), (900_000, 2018),
+               (1_200_000, 2020), (1_600_000, 2021), (2_000_000, 2022), (2_400_000, 2023), (2_800_000, 2024)]
 MIN_REVIEWS = 3000
 MIN_POSITIVE = 0.75
 
@@ -90,7 +108,8 @@ CREATE TABLE IF NOT EXISTS steam_tags (
     tags       TEXT,        -- JSON {тег: голоса}
     positive   INTEGER,
     negative   INTEGER,
-    fetched_at TEXT
+    fetched_at TEXT,
+    release_year INTEGER    -- 0 — год неизвестен
 );
 CREATE TABLE IF NOT EXISTS recommendations (
     appid      INTEGER PRIMARY KEY,
@@ -100,16 +119,73 @@ CREATE TABLE IF NOT EXISTS recommendations (
     reviews    INTEGER,
     tags       TEXT,        -- JSON: общие с профилем теги
     similar    TEXT,        -- JSON: мои игры, на которые похожа
+    release_year INTEGER,
     created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS reco_hidden (
     appid INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS reco_shown (     -- сколько раз игра уже была в рекомендациях
+    appid INTEGER PRIMARY KEY,
+    times INTEGER NOT NULL DEFAULT 0
 );
 """
 
 
 def init(conn: sqlite3.Connection):
     conn.executescript(SCHEMA)
+    # базы из прошлой версии: кэш тегов дополняем годом, рекомендации — просто пересоздаём
+    if "release_year" not in {r[1] for r in conn.execute("PRAGMA table_info(steam_tags)")}:
+        conn.execute("ALTER TABLE steam_tags ADD COLUMN release_year INTEGER")
+    if "release_year" not in {r[1] for r in conn.execute("PRAGMA table_info(recommendations)")}:
+        conn.execute("DROP TABLE recommendations")
+        conn.executescript(SCHEMA)
+
+
+def year_filter(conn) -> str:
+    row = conn.execute("SELECT value FROM settings WHERE key = 'reco_years'").fetchone()
+    return row[0] if row and row[0] in YEAR_FILTERS else "all"
+
+
+def guess_year(appid: int) -> int:
+    year = 2010
+    for edge, y in APPID_YEARS:
+        if appid >= edge:
+            year = y
+    return year
+
+
+def release_year(conn, appid: int) -> int | None:
+    """Год выхода из Steam Store (кэшируется рядом с тегами)."""
+    row = conn.execute("SELECT release_year FROM steam_tags WHERE appid = ?", (appid,)).fetchone()
+    if row and row[0] is not None:
+        return row[0] or None
+    time.sleep(0.3)  # Store API не любит частые запросы
+    try:
+        year = catalog.steam_details(appid).get("release_year") or 0
+    except (requests.RequestException, ValueError):
+        return None  # не сохраняем — попробуем в следующий раз
+    conn.execute("UPDATE steam_tags SET release_year = ? WHERE appid = ?", (year, appid))
+    conn.commit()
+    return year or None
+
+
+def production_factor(price_cents: int | None, mostly_big_games: bool) -> float:
+    """Кто проходит в основном крупные игры, тому дешёвые поделки с тегом «Шутер» подходят хуже.
+    Цена в Steam — грубый признак масштаба игры; для любителей инди не применяется."""
+    if not mostly_big_games or price_cents is None:
+        return 1.0
+    if price_cents == 0:
+        return 0.8
+    return 0.82 if price_cents < 1500 else 0.92 if price_cents < 2500 else 1.0
+
+
+def freshness(year: int | None) -> float:
+    """Небольшой бонус новым играм — иначе классика с сотнями тысяч отзывов вытесняет всё."""
+    if not year:
+        return 1.0
+    age = datetime.now().year - year
+    return 1.15 if age <= 3 else 1.07 if age <= 6 else 1.0 if age <= 12 else 0.88
 
 
 def _set_status(conn, state: str, text: str):
@@ -185,6 +261,37 @@ def pick_diverse(items: list, key, per_group: int = 2) -> list:
     return out
 
 
+def shown_penalty(times: int) -> float:
+    """Игра была в прошлой выдаче — опускаем её ниже, но не бесконечно (не больше двух ступеней)."""
+    return SHOWN_PENALTY ** min(times, 2)
+
+
+def tag_idf(conn) -> dict[str, float]:
+    """Насколько тег редкий среди всех известных игр: «Экшен» есть почти у всех и мало что
+    говорит, «Immersive sim» или «Стелс» — характерные. Считается по кэшу тегов."""
+    df: dict[str, int] = {}
+    rows = conn.execute("SELECT tags FROM steam_tags").fetchall()
+    for (tags,) in rows:
+        for t in tag_vector(json.loads(tags or "{}")):
+            df[t] = df.get(t, 0) + 1
+    n = len(rows)
+    return {t: math.log((n + 1) / (d + 1)) + 0.5 for t, d in df.items()}
+
+
+def similarity(vec: dict, profile: dict, idf: dict) -> float:
+    """Пополам: обычное сходство по тегам и сходство, где редкие теги весят больше."""
+    weigh = lambda v: {t: x * idf.get(t, 1.0) for t, x in v.items()}
+    return 0.5 * cosine(vec, profile) + 0.5 * cosine(weigh(vec), weigh(profile))
+
+
+def same_game_key(name: str) -> str:
+    """Одна игра под разными номерами в Steam: «Fallout: New Vegas» и «… PCR», переиздания."""
+    name = re.sub(r"[™®©]", "", name).lower()
+    name = re.sub(r"\((?:\d{4}|classic)\)|game of the year edition|goty|definitive edition|remastered"
+                  r"|maximum edition|complete edition|enhanced edition|\bpcr\b", "", name)
+    return re.sub(r"[^a-zа-я0-9]+", " ", name).strip()
+
+
 def cosine(a: dict, b: dict) -> float:
     dot = sum(v * b.get(k, 0) for k, v in a.items())
     na = math.sqrt(sum(v * v for v in a.values()))
@@ -245,7 +352,15 @@ def compute(db_path) -> None:
 
         # кандидаты: популярные игры с хорошими отзывами по самым весомым тегам
         candidates: dict[int, dict] = {}
-        search_tags = list(profile)[:PROFILE_TAGS_FOR_SEARCH]
+        # самые весомые теги + несколько случайных из следующих: так при каждом обновлении
+        # в выборку попадают и другие игры
+        tags = list(profile)
+        extra = tags[PROFILE_TAGS_FIXED:PROFILE_TAGS_FIXED + 14]
+        search_tags = tags[:PROFILE_TAGS_FIXED] + random.sample(extra, min(PROFILE_TAGS_RANDOM, len(extra)))
+        min_year = YEAR_FILTERS[year_filter(conn)][1]
+        shown = dict(conn.execute("SELECT appid, times FROM reco_shown").fetchall())
+        # в библиотеке мало инди — значит, человек в основном играет в крупные игры
+        mostly_big_games = sum(1 for _, vec, _ in seeds if vec.get("Indie", 0) >= 0.3) < 0.25 * len(seeds)
         for i, tag in enumerate(search_tags, 1):
             progress(f"Ищу игры по тегу «{tag_ru(tag)}» ({i} из {len(search_tags)})")
             try:
@@ -256,16 +371,32 @@ def compute(db_path) -> None:
                 appid = int(item["appid"])
                 pos, neg = item.get("positive") or 0, item.get("negative") or 0
                 if (appid in have or appid in hidden or pos + neg < MIN_REVIEWS
-                        or pos / (pos + neg) < MIN_POSITIVE or NOT_A_GAME.search(item.get("name") or "")):
+                        or pos / (pos + neg) < MIN_POSITIVE or NOT_A_GAME.search(item.get("name") or "")
+                        or (min_year and guess_year(appid) < min_year - 1)):
                     continue
-                c = candidates.setdefault(appid, {"name": item["name"], "pos": pos, "neg": neg, "coarse": 0.0})
+                price = item.get("initialprice")
+                c = candidates.setdefault(appid, {"name": item["name"], "pos": pos, "neg": neg, "coarse": 0.0,
+                                                  "price": int(price) if str(price).isdigit() else None})
                 c["coarse"] += profile[tag]
 
         def rating(c):
             return c["pos"] / (c["pos"] + c["neg"])
 
-        shortlist = sorted(candidates.items(), key=lambda kv: -kv[1]["coarse"] * rating(kv[1]))[:CANDIDATES_TO_CHECK]
+        def coarse(kv):
+            appid, c = kv
+            return (c["coarse"] * rating(c) * freshness(guess_year(appid))
+                    * production_factor(c.get("price"), mostly_big_games)
+                    * shown_penalty(shown.get(appid, 0)) * random.uniform(0.85, 1.15))
 
+        shortlist = sorted(candidates.items(), key=lambda kv: -coarse(kv))[:CANDIDATES_TO_CHECK]
+        in_shortlist = {appid for appid, _ in shortlist}
+        for appid, name, rating_, reviews in conn.execute(
+                "SELECT appid, name, rating, reviews FROM recommendations").fetchall():
+            if appid not in in_shortlist and appid not in have and appid not in hidden:
+                pos = round(rating_ * reviews)
+                shortlist.append((appid, {"name": name, "pos": pos, "neg": reviews - pos, "coarse": 0.0}))
+
+        idf = tag_idf(conn)
         results = []
         for i, (appid, c) in enumerate(shortlist, 1):
             progress(f"Сравниваю кандидатов с твоим вкусом: {i} из {len(shortlist)}")
@@ -273,26 +404,41 @@ def compute(db_path) -> None:
             if not info:
                 continue
             vec = tag_vector(info["tags"])
-            sim = cosine(vec, profile)
-            if sim <= 0:
+            sim = similarity(vec, profile, idf)
+            if sim < MIN_MATCH:
+                continue
+            year = release_year(conn, appid)
+            if min_year and year and year < min_year:
                 continue
             r = rating(c)
-            score = sim * (0.7 + 0.3 * (r - MIN_POSITIVE) / (1 - MIN_POSITIVE))
+            quality = sim * (0.7 + 0.3 * (r - MIN_POSITIVE) / (1 - MIN_POSITIVE))
+            # «совпадение» на карточке — честное; порядок — с учётом новизны, прошлых показов и случайности
+            order = (quality * freshness(year) * production_factor(c.get("price"), mostly_big_games)
+                     * shown_penalty(shown.get(appid, 0)) * random.uniform(1 - JITTER, 1 + JITTER))
             shared = sorted((t for t in vec if t in profile), key=lambda t: -vec[t] * profile[t])[:4]
             similar = pick_diverse(sorted(seeds, key=lambda s: -cosine(vec, s[1]) * s[2]),
                                    key=lambda s: franchise(s[0]), per_group=1)[:2]
-            results.append((appid, c["name"], score, r, c["pos"] + c["neg"],
-                            json.dumps([tag_ru(t) for t in shared], ensure_ascii=False),
-                            json.dumps([s[0] for s in similar], ensure_ascii=False)))
+            results.append((order, (appid, c["name"], quality, r, c["pos"] + c["neg"],
+                                    json.dumps([tag_ru(t) for t in shared], ensure_ascii=False),
+                                    json.dumps([s[0] for s in similar], ensure_ascii=False), year)))
 
-        results.sort(key=lambda x: -x[2])
-        results = pick_diverse(results, key=lambda r: franchise(r[1]))  # не больше двух игр одной серии
+        results.sort(key=lambda x: -x[0])
+        # не больше двух игр одной серии
+        rows = pick_diverse([row for _, row in results], key=lambda r: same_game_key(r[1]), per_group=1)
+        results = pick_diverse(rows, key=lambda r: franchise(r[1]))[:RESULTS]
         now = datetime.now().isoformat(timespec="seconds")
         conn.execute("DELETE FROM recommendations")
         conn.executemany(
-            "INSERT INTO recommendations(appid, name, score, rating, reviews, tags, similar, created_at) "
-            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-            [(*r, now) for r in results[:RESULTS]],
+            "INSERT INTO recommendations(appid, name, score, rating, reviews, tags, similar, release_year, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(*r, now) for r in results],
+        )
+        # считаем показы подряд: игра, пропустившая обновление, снова «свежая»
+        conn.execute(f"DELETE FROM reco_shown WHERE appid NOT IN ({','.join('?' * len(results)) or 'NULL'})",
+                     [r[0] for r in results])
+        conn.executemany(
+            "INSERT INTO reco_shown(appid, times) VALUES(?, 1) ON CONFLICT(appid) DO UPDATE SET times = times + 1",
+            [(r[0],) for r in results],
         )
         conn.execute(
             "INSERT INTO settings(key, value) VALUES('reco_profile', ?) "
@@ -300,7 +446,7 @@ def compute(db_path) -> None:
             (json.dumps([[tag_ru(t), round(w, 4)] for t, w in list(profile.items())[:12]], ensure_ascii=False),),
         )
         conn.commit()
-        _set_status(conn, "done", f"Готово: {min(len(results), RESULTS)} рекомендаций.")
+        _set_status(conn, "done", f"Готово: {len(results)} рекомендаций.")
     except Exception as exc:  # фоновая задача: любую ошибку показываем на странице
         _set_status(conn, "error", f"Не удалось построить рекомендации: {exc}")
     finally:
