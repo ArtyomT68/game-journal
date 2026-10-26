@@ -249,3 +249,47 @@ textarea.input { resize: vertical; }
 /* на средних экранах в шапке тесно: оставляем у логотипа только значок */
 @media (max-width: 1500px) { .logo span { display: none; } }
 .reco-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+/* подсказки поиска */
+.suggest-host { position: relative; }
+.suggest { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: 420px; max-width: 92vw;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .5); }
+.topsearch .suggest { left: auto; right: 0; }
+.suggest a { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px;
+  color: var(--text); text-decoration: none; }
+.suggest a:hover, .suggest a.on { background: var(--panel2); }
+.suggest img { width: 92px; height: 34px; object-fit: cover; border-radius: 4px; flex: none; background: #222; }
+.suggest .t { min-width: 0; }
+.suggest .t b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest .t small { color: var(--muted); font-size: 12px; }
+.suggest a.all { justify-content: center; color: #a99bff; font-size: 13px; padding: 8px; }
+
+/* фильтры поиска */
+.explore-form .toolbar { padding-top: 10px; }
+.explore-form .suggest-wrap { flex: 1; max-width: 520px; }
+.explore-form .suggest-wrap .search { width: 100%; max-width: none; }
+.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 18px; }
+.filters label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em; }
+.filters select, .filters input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  color: var(--text); font: 14px "Segoe UI", system-ui, sans-serif; text-transform: none; letter-spacing: 0; min-width: 0; }
+.filters .range { display: flex; gap: 6px; }
+.filters .range input { width: 50%; }
+.filter-actions { display: flex; gap: 8px; align-items: flex-end; }
+
+/* прохождение по достижениям */
+.story-plate { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #143a31; border: 1px solid #1f5a4a;
+  color: var(--accent2); font-weight: 600; font-size: 14px; }
+.story-plate small { display: block; font-weight: 400; color: var(--text); opacity: .8; margin-top: 2px; }
+.story-badge { position: absolute; left: 10px; bottom: 10px; background: rgba(20, 58, 49, .95); color: var(--accent2);
+  border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 700; }
+.tag.story { color: var(--accent2); border-color: #1f5a4a; }
+.panel.finale { max-width: 1000px; margin: 20px auto 0; }
+.panel.finale h3 { margin-bottom: 4px; }
+.finale-form { display: flex; gap: 10px; flex-wrap: wrap; }
+.finale-form select { flex: 1; min-width: 260px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 12px; color: var(--text); font: 14px "Segoe UI", system-ui, sans-serif; }
+/* у новых игр нет вертикальной обложки — показываем горизонтальную картинку магазина целиком */
+.cover img.wide, .poster img.wide { object-fit: contain; background: radial-gradient(circle at 50% 40%, #2b2f45, #11131b); }

@@ -3,7 +3,9 @@
 Steam Store работает без ключа. RAWG (игры не из Steam: консоли, GOG и т.д.)
 подключается, если в настройках указан бесплатный ключ с https://rawg.io/apidocs.
 """
+import html
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -13,6 +15,9 @@ TIMEOUT = 10
 HEADERS = {"User-Agent": "GameJournal/1.0 (personal use)"}
 
 STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/"
+STORE_SEARCH = "https://store.steampowered.com/search/results/"
+STEAM_TAGS = "https://store.steampowered.com/tagdata/populartags/russian"
+COVERS_DIR = Path(__file__).resolve().parent / "static" / "covers"
 STEAM_DETAILS = "https://store.steampowered.com/api/appdetails"
 STEAM_COVER = "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
 RAWG_API = "https://api.rawg.io/api"
@@ -47,7 +52,70 @@ def steam_global_achievements(appid: int) -> dict | None:
     }
 
 
-def search_steam(query: str, limit: int = 10) -> list[dict]:
+def _row_value(pattern: str, row: str) -> str | None:
+    m = re.search(pattern, row, re.S)
+    return html.unescape(m.group(1)).strip() if m else None
+
+
+def store_search(query: str = "", tags: list[int] | None = None, sort: str = "", count: int = 50,
+                 start: int = 0) -> list[dict]:
+    """Поиск как в магазине Steam: только игры (без DLC и саундтреков), до 100 результатов,
+    с фильтром по тегам и сортировкой. Сразу отдаёт год выхода и долю положительных отзывов.
+
+    sort: "" — по релевантности, "Released_DESC" — сначала новые, "Reviews_DESC" — по отзывам.
+    """
+    params = {"term": query, "infinite": 1, "category1": 998, "count": min(count, 100), "start": start,
+              "cc": "US", "l": "russian"}
+    if tags:
+        params["tags"] = ",".join(map(str, tags))
+    if sort:
+        params["sort_by"] = sort
+    # магазин Steam иногда не отвечает с первого раза — одна повторная попытка
+    for attempt in range(2):
+        try:
+            resp = requests.get(STORE_SEARCH, params=params, headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            break
+        except requests.RequestException:
+            if attempt:
+                raise
+            time.sleep(1)
+    rows = re.split(r'(?=<a [^>]*class="search_result_row)', resp.json().get("results_html", ""))
+    results = []
+    for row in rows:
+        appid = _row_value(r'data-ds-appid="(\d+)"', row)
+        if not appid or "data-ds-bundleid" in row:
+            continue
+        title = _row_value(r'<span class="title">(.*?)</span>', row) or ""
+        if NOT_A_GAME.search(title):
+            continue
+        released = _row_value(r'search_released[^>]*>(.*?)</div>', row) or ""
+        year = re.search(r"\b(19|20)\d{2}\b", released)
+        review = _row_value(r'search_review_summary[^"]*" data-tooltip-html="(.*?)"', row) or ""
+        pct = re.search(r"(\d+)%", review)
+        votes = re.search(r"([\d,\s]+)\s", review[review.find("%") + 1:]) if pct else None
+        appid = int(appid)
+        results.append({
+            "source": "steam",
+            "id": appid,
+            "title": title,
+            "cover": steam_cover_url(appid),
+            "thumb_fallback": _row_value(r'<img src="([^"]+)"', row),
+            "year": int(year.group()) if year else None,
+            "rating": int(pct.group(1)) if pct else None,
+            "reviews": int(re.sub(r"\D", "", votes.group(1)) or 0) if votes else None,
+        })
+    for r in results:
+        r["subtitle"] = " · ".join(x for x in (
+            str(r["year"]) if r["year"] else "",
+            f"👍 {r['rating']}%" if r["rating"] is not None else "",
+        ) if x) or "Steam"
+    return results
+
+
+def quick_search(query: str) -> list[dict]:
+    """Быстрый поиск Steam (storesearch): понимает начало слова («cyberp», «hogw») и русские
+    названия («ведьм» → «Ведьмак 3»), но отдаёт не больше 10 результатов."""
     resp = requests.get(
         STEAM_SEARCH,
         params={"term": query, "l": "russian", "cc": "US"},
@@ -67,7 +135,48 @@ def search_steam(query: str, limit: int = 10) -> list[dict]:
             "thumb_fallback": item.get("tiny_image"),
             "subtitle": "Steam",
         })
+    return results
+
+
+def search_steam(query: str, limit: int = 30) -> list[dict]:
+    """Поиск по названию: объединяем оба поиска Steam.
+
+    storesearch понимает недописанные слова, но отдаёт максимум 10 результатов (на «Assassin's
+    Creed» Odyssey в них не попадает); поиск магазина отдаёт до 100, но ищет только целые слова.
+    """
+    results: list[dict] = []
+    for search in (lambda: quick_search(query), lambda: store_search(query, count=limit)):
+        try:
+            found = search()
+        except (requests.RequestException, ValueError):
+            continue
+        known = {r["id"]: r for r in results}
+        for r in found:
+            if r["id"] in known:
+                # у поиска магазина есть год и рейтинг — дополняем ими запись быстрого поиска
+                if r.get("year") or r.get("rating") is not None:
+                    known[r["id"]].update({k: r[k] for k in ("year", "rating", "reviews", "subtitle") if k in r})
+            else:
+                results.append(r)
+    if not results:
+        raise requests.RequestException("Steam не ответил")
     return results[:limit]
+
+
+_tags_cache: tuple[float, list[dict]] | None = None
+
+
+def steam_tags() -> list[dict]:
+    """Популярные теги Steam с русскими названиями: [{tagid, name}], кэш на сутки."""
+    global _tags_cache
+    if _tags_cache and time.time() - _tags_cache[0] < 86400:
+        return _tags_cache[1]
+    try:
+        tags = requests.get(STEAM_TAGS, headers=HEADERS, timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        return _tags_cache[1] if _tags_cache else []
+    _tags_cache = (time.time(), tags)
+    return tags
 
 
 def search_rawg(query: str, api_key: str, limit: int = 10) -> list[dict]:

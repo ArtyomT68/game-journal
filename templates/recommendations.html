@@ -49,7 +49,7 @@
       <div class="card reco">
         <a class="cover" href="{{ url_for('explore_game', source='steam', ext_id=r.appid, title=r.name) }}">
           <img src="{{ cover_url(r.appid) }}" alt="" loading="lazy"
-               onerror="this.onerror=null; this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ r.appid }}/header.jpg'">
+               onerror="this.onerror=null; this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ r.appid }}/header.jpg'; this.classList.add('wide')">
           <span class="badge match" title="Насколько игра совпадает с твоим вкусом">{{ (r.score * 100) | round | int }}%</span>
         </a>
         <div class="meta">

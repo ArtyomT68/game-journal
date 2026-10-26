@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS games (
     note                   TEXT,
     status                 TEXT    NOT NULL DEFAULT 'completed',  -- completed | playing | wishlist
     started_on             TEXT,            -- когда начал проходить (для status = playing)
+    story_done_on          TEXT,            -- дата финального достижения Steam (сюжет пройден)
+    story_ach              TEXT,            -- название этого достижения
+    auto_added             INTEGER,         -- 1 — добавлена синхронизацией Steam по достижениям
     wish_rank              INTEGER,         -- место в списке хотелок (1 — первая на очереди)
     -- оценка 100% достижений (заполняет пользователь)
     hundred_fun            INTEGER,         -- 1–5: насколько интересно закрывать
@@ -86,6 +89,9 @@ def init_db(path: Path):
 MIGRATIONS = {
     "status": "ALTER TABLE games ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
     "started_on": "ALTER TABLE games ADD COLUMN started_on TEXT",
+    "story_done_on": "ALTER TABLE games ADD COLUMN story_done_on TEXT",
+    "story_ach": "ALTER TABLE games ADD COLUMN story_ach TEXT",
+    "auto_added": "ALTER TABLE games ADD COLUMN auto_added INTEGER",
     "wish_rank": "ALTER TABLE games ADD COLUMN wish_rank INTEGER",
     "hundred_fun": "ALTER TABLE games ADD COLUMN hundred_fun INTEGER",
     "hundred_grind": "ALTER TABLE games ADD COLUMN hundred_grind INTEGER",

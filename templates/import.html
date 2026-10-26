@@ -12,18 +12,24 @@
     <p class="sub">Все игры из Steam, в которые ты играл, уже в библиотеке.</p>
   {% else %}
     <p class="sub">Игры из аккаунта, которых нет в библиотеке (по наигранному времени). Добавь те, что прошёл.</p>
+    <div class="toolbar">
+      <input class="search" type="search" placeholder="🔍 Найти среди {{ owned | length }} игр…" data-filter-list=".import-list" autofocus>
+      <span class="sub filter-count" data-filter-count></span>
+    </div>
     <div class="import-list">
       {% for g in owned %}
-        <form method="post" action="{{ url_for('add_from_catalog') }}" class="result" data-busy="Добавляю…">
+        <form method="post" action="{{ url_for('add_from_catalog') }}" class="result" data-name="{{ g.name | lower }}">
           <img src="{{ cover_url(g.appid) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
           <div class="t"><b>{{ g.name }}</b><small>{{ g.playtime_forever | playtime }} в Steam</small></div>
           <input type="hidden" name="source" value="steam">
           <input type="hidden" name="id" value="{{ g.appid }}">
           <input type="hidden" name="title" value="{{ g.name }}">
-          <button class="btn small">Добавить</button>
+          <button class="btn small" name="status" value="completed" data-busy-btn="…" title="Добавить в библиотеку как пройденную">✓ Пройдена</button>
+          <button class="btn ghost small" name="status" value="playing" data-busy-btn="…" title="Добавить в «Прохожу»">▶</button>
         </form>
       {% endfor %}
     </div>
+    <div class="empty" data-filter-empty hidden>Ничего не найдено.</div>
   {% endif %}
 </div>
 {% endblock %}

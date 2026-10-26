@@ -197,3 +197,95 @@ if (estimateBox) {
     })
     .catch(() => { field("status").textContent = "Не удалось загрузить данные HowLongToBeat."; });
 }
+
+// Подсказки при вводе в поиске: похожие игры из Steam, клик — карточка игры
+const SUGGEST_STATUS = { completed: "✓ пройдена", playing: "▶ прохожу", wishlist: "★ в хотелках" };
+document.querySelectorAll("[data-suggest]").forEach(input => {
+  const box = document.createElement("div");
+  box.className = "suggest";
+  box.hidden = true;
+  input.parentElement.classList.add("suggest-host");
+  input.parentElement.append(box);
+  let timer = null, seq = 0, active = -1;
+
+  const items = () => [...box.querySelectorAll("a")];
+  const highlight = i => {
+    active = i;
+    items().forEach((a, k) => a.classList.toggle("on", k === i));
+  };
+  const close = () => { box.hidden = true; active = -1; };
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { close(); return; }
+    timer = setTimeout(async () => {
+      const my = ++seq;
+      let data;
+      try {
+        data = await (await fetch(`/api/suggest?q=${encodeURIComponent(q)}`)).json();
+      } catch { return; }
+      if (my !== seq) return;
+      box.replaceChildren();
+      for (const r of data.results) {
+        const a = document.createElement("a");
+        a.href = r.url;
+        const img = document.createElement("img");
+        img.src = r.thumb || "";
+        img.alt = "";
+        img.onerror = () => { img.style.visibility = "hidden"; };
+        const t = document.createElement("span");
+        t.className = "t";
+        const b = document.createElement("b");
+        b.textContent = r.title;
+        const s = document.createElement("small");
+        s.textContent = r.in_library ? `${r.subtitle} · ${SUGGEST_STATUS[r.in_library]}` : r.subtitle;
+        t.append(b, s);
+        a.append(img, t);
+        box.append(a);
+      }
+      const all = document.createElement("a");
+      all.className = "all";
+      all.href = `/explore?q=${encodeURIComponent(q)}`;
+      all.textContent = `Все результаты по «${q}» →`;
+      box.append(all);
+      active = -1;
+      box.hidden = false;
+    }, 250);
+  });
+
+  // стрелки ↑↓ и Enter по подсказкам, Esc — закрыть
+  input.addEventListener("keydown", e => {
+    if (box.hidden) return;
+    const list = items();
+    if (e.key === "ArrowDown") { e.preventDefault(); highlight((active + 1) % list.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); highlight((active - 1 + list.length) % list.length); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); location.href = list[active].href; }
+    else if (e.key === "Escape") { close(); }
+  });
+  input.addEventListener("blur", () => setTimeout(close, 150));
+});
+
+// Кнопка «Фильтры» в поиске
+document.querySelectorAll("[data-toggle-filters]").forEach(b => b.addEventListener("click", () => {
+  const panel = b.closest("form").querySelector(".filters");
+  panel.hidden = !panel.hidden;
+}));
+
+// Поиск по списку на странице (вкладка «Импорт»): фильтрует строки по названию на лету
+document.querySelectorAll("[data-filter-list]").forEach(input => {
+  const rows = [...document.querySelectorAll(`${input.dataset.filterList} [data-name]`)];
+  const count = document.querySelector("[data-filter-count]");
+  const empty = document.querySelector("[data-filter-empty]");
+  input.addEventListener("input", () => {
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const row of rows) {
+      const ok = words.every(w => row.dataset.name.includes(w));
+      row.hidden = !ok;
+      shown += ok;
+    }
+    if (count) count.textContent = words.length ? `найдено: ${shown}` : "";
+    if (empty) empty.hidden = shown > 0;
+  });
+});

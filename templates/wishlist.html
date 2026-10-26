@@ -20,6 +20,9 @@
           <a class="wish-title" href="{{ url_for('edit_game', game_id=g.id) }}">{{ g.title }}</a>
           <div class="wish-sub">{{ [g.release_year, g.genres] | select | join(' · ') }}</div>
           <div class="wish-tags">
+            {% if g.story_done_on %}
+              <span class="tag story" title="Финальное достижение «{{ g.story_ach }}» получено {{ g.story_done_on | ru_date }}">🏁 уже пройдена?</span>
+            {% endif %}
             {% if g.steam_global_ach_total %}
               <span class="tag plain" title="Самое редкое достижение есть у {{ g.steam_global_rarest }}% игроков">
                 🏆 {{ g.steam_global_ach_total }} дост. · 100%: {{ rarity_label(g.steam_global_rarest) }} (≤{{ g.steam_global_rarest }}%)</span>

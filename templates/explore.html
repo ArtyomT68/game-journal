@@ -2,13 +2,55 @@
 {% block title %}Поиск игр — Game Journal{% endblock %}
 {% block content %}
 {% set STATUS_LABELS = {'completed': '✓ пройдена', 'playing': '▶ прохожу', 'wishlist': '★ в хотелках'} %}
+{% macro tag_select(name, current, empty) %}
+  <select name="{{ name }}">
+    <option value="">{{ empty }}</option>
+    {% for t in tag_options %}<option value="{{ t.tagid }}" {{ 'selected' if t.tagid == current }}>{{ t.name }}</option>{% endfor %}
+  </select>
+{% endmacro %}
 <div class="page-head">
   <h2>Поиск игр</h2>
-  <form class="toolbar" method="get" action="{{ url_for('explore') }}">
-    <input class="search" type="search" name="q" value="{{ q }}" placeholder="🔍 Название игры…" autofocus>
-    <button class="btn">Найти</button>
+  <form class="explore-form" method="get" action="{{ url_for('explore') }}">
+    <div class="toolbar">
+      <div class="suggest-wrap">
+        <input class="search" type="search" name="q" value="{{ q }}" placeholder="🔍 Название игры…" autocomplete="off"
+               data-suggest {{ 'autofocus' if not filtering }}>
+      </div>
+      <button class="btn">Найти</button>
+      <button class="btn ghost" type="button" data-toggle-filters>⚙ Фильтры</button>
+    </div>
+    <div class="filters" {{ '' if filtering else 'hidden' }}>
+      <label>Жанр / тег {{ tag_select('tag', f.tag, 'любой') }}</label>
+      <label>и ещё тег {{ tag_select('tag2', f.tag2, '—') }}</label>
+      <label>Год выхода
+        <span class="range">
+          <input type="number" name="year_from" min="1980" max="{{ this_year + 1 }}" placeholder="с" value="{{ f.year_from or '' }}">
+          <input type="number" name="year_to" min="1980" max="{{ this_year + 1 }}" placeholder="по" value="{{ f.year_to or '' }}">
+        </span></label>
+      <label>Отзывы
+        <select name="rating">
+          {% for v, l in [(0, 'любые'), (70, 'от 70% положительных'), (80, 'от 80%'), (90, 'от 90%')] %}
+            <option value="{{ v }}" {{ 'selected' if f.rating == v }}>{{ l }}</option>{% endfor %}
+        </select></label>
+      <label>Популярность
+        <select name="pop">
+          {% for v, l in [(0, 'любая'), (1000, 'от 1 000 отзывов'), (10000, 'от 10 000'), (50000, 'от 50 000')] %}
+            <option value="{{ v }}" {{ 'selected' if f['pop'] == v }}>{{ l }}</option>{% endfor %}
+        </select></label>
+      <label>Сортировка
+        <select name="sort">
+          {% for v, l in sorts.items() %}<option value="{{ v }}" {{ 'selected' if f.sort == v }}>{{ l }}</option>{% endfor %}
+        </select></label>
+      <div class="filter-actions">
+        <button class="btn">Применить</button>
+        <a class="btn ghost" href="{{ url_for('explore', q=q) if q else url_for('explore') }}">Сбросить</a>
+      </div>
+    </div>
   </form>
-  {% if not q %}<p class="sub">Найди игру, открой её карточку — там время прохождения, сложность 100% и кнопки «Хочу пройти», «Прохожу» и «Пройдена».</p>{% endif %}
+  {% if not q and not results %}
+    <p class="sub">Введи название или выбери жанр в фильтрах. Открой карточку игры — там время прохождения,
+      сложность 100% и кнопки «Хочу пройти», «Прохожу» и «Пройдена».</p>
+  {% endif %}
 </div>
 
 {% for e in errors %}<div class="flash error">{{ e }}</div>{% endfor %}
@@ -19,7 +61,7 @@
       <a class="card" href="{{ url_for('explore_game', source=r.source, ext_id=r.id, title=r.title) }}">
         <div class="cover">
           {% if r.cover %}<img src="{{ r.cover }}" alt="" loading="lazy"
-               {% if r.thumb_fallback %}onerror="this.onerror=null; this.src='{{ r.thumb_fallback }}'"{% endif %}>
+               {% if r.thumb_fallback %}onerror="this.onerror=null; this.src='{{ r.thumb_fallback }}'; this.classList.add('wide')"{% endif %}>
           {% else %}<div class="nocover">{{ r.title }}</div>{% endif %}
           {% if r.in_library %}<span class="badge mine">{{ STATUS_LABELS[r.in_library] }}</span>{% endif %}
         </div>
@@ -30,7 +72,7 @@
       </a>
     {% endfor %}
   </section>
-{% elif q and not errors %}
-  <div class="empty">Ничего не найдено. Попробуй название на английском.</div>
+{% elif (q or filtering) and not errors %}
+  <div class="empty">Ничего не найдено. Попробуй название на английском или ослабь фильтры.</div>
 {% endif %}
 {% endblock %}

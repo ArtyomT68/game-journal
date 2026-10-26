@@ -23,10 +23,11 @@
   </nav>
   <div class="spacer"></div>
   <form class="topsearch" method="get" action="{{ url_for('explore') }}">
-    <input type="search" name="q" placeholder="🔍 Найти игру…" value="{{ request.args.get('q', '') if ep == 'explore' else '' }}">
+    <input type="search" name="q" placeholder="🔍 Найти игру…" autocomplete="off" data-suggest
+           value="{{ request.args.get('q', '') if ep == 'explore' else '' }}">
   </form>
   <form method="post" action="{{ url_for('steam_sync_route') }}" class="inline" data-busy="Синхронизация…">
-    <button class="btn steam" type="submit" title="Синхронизировать Steam">⟳ Steam</button>
+    <button class="btn steam" type="submit" title="Синхронизировать Steam: время, достижения и пройденные игры. В первый раз — несколько минут">⟳ Steam</button>
   </form>
   {% if ep == 'playing' %}
     <button class="btn" type="button" data-open-add="playing">+ Начать игру</button>

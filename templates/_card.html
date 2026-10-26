@@ -6,6 +6,9 @@
       <span class="badge {{ 'p100' if g.completion_percent == 100 }}">{{ g.completion_percent }}%</span>
     {% endif %}
     {% if g.times_completed > 1 %}<span class="runs">×{{ g.times_completed }}</span>{% endif %}
+    {% if g.story_done_on and g.status != 'completed' %}
+      <span class="story-badge" title="Финальное достижение получено {{ g.story_done_on | ru_date }}">🏁 сюжет пройден</span>
+    {% endif %}
   </div>
   <div class="meta">
     <h4 title="{{ g.title }}">{{ g.title }}</h4>

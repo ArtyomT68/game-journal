@@ -24,6 +24,13 @@
     {% elif game.steam_appid and not is_wish %}
       <div class="steamline muted">Steam-данных пока нет — нажми «Синхронизировать Steam»</div>
     {% endif %}
+    {% if game.story_done_on %}
+      <div class="story-plate" title="Определено по достижению Steam">
+        🏁 Сюжет пройден {{ game.story_done_on | ru_date }}
+        <small>достижение «{{ game.story_ach }}»</small>
+      </div>
+    {% endif %}
+    {% if game.auto_added %}<div class="steamline muted">Добавлена автоматически при синхронизации Steam</div>{% endif %}
   </div>
 
   <form method="post" enctype="multipart/form-data" class="main">
@@ -151,6 +158,31 @@
     </div>
   </form>
 </div>
+
+{% if game.steam_appid and finale %}
+<div class="panel finale" id="finale">
+  <h3>Финал игры</h3>
+  <p class="sub">
+    Синхронизация Steam считает игру пройденной, когда получено финальное достижение.
+    Сейчас: <b>{{ finale_labels[finale.method] }}</b>{% if finale.names %} — «{{ finale.names | join('», «') }}»{% endif %}.
+    {% if finale.method == 'none' %}Если финал назван по последней миссии — выбери его ниже.{% endif %}
+  </p>
+  {% if finale.all %}
+    <form method="post" action="{{ url_for('set_finale', game_id=game.id) }}" class="finale-form">
+      <select name="apiname">
+        <option value="">— определять автоматически —</option>
+        {% for api, name, desc in finale.all %}
+          <option value="{{ api }}" {{ 'selected' if finale.method == 'manual' and api in finale.finals }}>
+            {{ name }}{% if desc %} — {{ desc[:90] }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <button class="btn ghost small">Сохранить финал</button>
+    </form>
+  {% else %}
+    <p class="hint">У игры нет достижений в Steam — прохождение по ним определить нельзя.</p>
+  {% endif %}
+</div>
+{% endif %}
 
 <form id="delete-form" method="post" action="{{ url_for('delete_game', game_id=game.id) }}"
       data-confirm="Удалить «{{ game.title }}»?"></form>

@@ -5,7 +5,7 @@
   <div class="side">
     <div class="poster">
       {% if cover %}<img src="{{ cover }}" alt=""
-           {% if info.header_image %}onerror="this.onerror=null; this.src='{{ info.header_image }}'"{% endif %}>
+           {% if info.header_image %}onerror="this.onerror=null; this.src='{{ info.header_image }}'; this.classList.add('wide')"{% endif %}>
       {% else %}<div class="nocover">{{ info.title }}</div>{% endif %}
     </div>
   </div>

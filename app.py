@@ -19,6 +19,7 @@ import catalog
 import estimates
 import recommend
 import steam_sync
+import story
 from db import close_db, get_db, get_setting, init_db, set_setting
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -90,6 +91,7 @@ def create_app() -> Flask:
     init_db(app.config["DATABASE"])
     with sqlite3.connect(app.config["DATABASE"]) as conn:
         recommend.init(conn)
+        story.init(conn)
     app.secret_key = _load_secret_key(app.config["DATABASE"])
     app.teardown_appcontext(close_db)
     register_filters(app)
@@ -373,21 +375,87 @@ def register_routes(app: Flask):
             except requests.RequestException:
                 errors.append("RAWG недоступен")
 
+        mark_in_library(results)
+        return results, errors
+
+    def mark_in_library(results: list[dict]):
+        """Помечает результаты поиска статусом игры, если она уже есть у меня."""
         db = get_db()
         have_steam = dict(db.execute("SELECT steam_appid, status FROM games WHERE steam_appid IS NOT NULL").fetchall())
         have_rawg = dict(db.execute("SELECT rawg_id, status FROM games WHERE rawg_id IS NOT NULL").fetchall())
         for r in results:
             have = have_steam if r["source"] == "steam" else have_rawg
-            r["in_library"] = have.get(r["id"])  # статус игры, если она уже есть
-        return results, errors
+            r["in_library"] = have.get(r["id"])
 
     # --- поиск по каталогу с карточкой-превью
 
+    EXPLORE_SORTS = {"": "по совпадению", "Released_DESC": "сначала новые", "Reviews_DESC": "по отзывам"}
+
     @app.get("/explore")
     def explore():
+        a = request.args
+        f = {
+            "q": a.get("q", "").strip(),
+            "tag": a.get("tag", type=int),
+            "tag2": a.get("tag2", type=int),
+            "year_from": a.get("year_from", type=int),
+            "year_to": a.get("year_to", type=int),
+            "rating": a.get("rating", 0, type=int),
+            # без названия ищем по жанру — без порога по отзывам в выдачу лезут тысячи безвестных игр
+            "pop": a.get("pop", 0 if a.get("q") else 1000, type=int),
+            "sort": a.get("sort", "") if a.get("sort", "") in EXPLORE_SORTS else "",
+        }
+        tags = [t for t in (f["tag"], f["tag2"]) if t]
+        pop_default = 0 if f["q"] else 1000
+        filtering = bool(tags or f["year_from"] or f["year_to"] or f["rating"] or f["sort"]
+                         or f["pop"] != pop_default)
+        results, errors = [], []
+
+        if f["q"] and not filtering:
+            results, errors = search_catalog(f["q"])
+        elif f["q"] or tags or filtering:
+            def keep(r):
+                y = r.get("year")
+                return ((not f["year_from"] or (y and y >= f["year_from"]))
+                        and (not f["year_to"] or (y and y <= f["year_to"]))
+                        and (not f["rating"] or (r.get("rating") or 0) >= f["rating"])
+                        and (not f["pop"] or (r.get("reviews") or 0) >= f["pop"]))
+            try:
+                # фильтры по году и отзывам Steam не умеет — дочитываем страницы, пока не наберётся выдача
+                for page in range(4):
+                    batch = catalog.store_search(f["q"], tags=tags, sort=f["sort"], count=100, start=page * 100)
+                    results += [r for r in batch if keep(r)]
+                    if len(results) >= 40 or len(batch) < 100:
+                        break
+            except (requests.RequestException, ValueError):
+                errors.append("Steam Store недоступен")
+            results = results[:60]
+            mark_in_library(results)
+
+        all_tags = catalog.steam_tags()[:200]
+        return render_template(
+            "explore.html", q=f["q"], f=f, results=results, errors=errors, filtering=filtering,
+            tag_options=sorted(all_tags, key=lambda t: t["name"].lower()), sorts=EXPLORE_SORTS,
+            this_year=date.today().year,
+        )
+
+    @app.get("/api/suggest")
+    def api_suggest():
+        """Подсказки при вводе в поиске: первые совпадения из Steam."""
         q = request.args.get("q", "").strip()
-        results, errors = search_catalog(q)
-        return render_template("explore.html", q=q, results=results, errors=errors)
+        if len(q) < 2:
+            return jsonify(results=[])
+        try:
+            results = catalog.search_steam(q, limit=8)
+        except (requests.RequestException, ValueError):
+            return jsonify(results=[])
+        mark_in_library(results)
+        return jsonify(results=[
+            {"id": r["id"], "title": r["title"], "subtitle": r["subtitle"], "thumb": r["thumb_fallback"],
+             "in_library": r["in_library"],
+             "url": url_for("explore_game", source="steam", ext_id=r["id"], title=r["title"])}
+            for r in results
+        ])
 
     @app.get("/explore/<source>/<int:ext_id>")
     def explore_game(source, ext_id):
@@ -446,6 +514,8 @@ def register_routes(app: Flask):
         cols = ", ".join(fields)
         marks = ", ".join("?" for _ in fields)
         cur = db.execute(f"INSERT INTO games({cols}) VALUES({marks})", tuple(fields.values()))
+        if fields.get("steam_appid"):
+            db.execute("DELETE FROM sync_ignore WHERE appid = ?", (fields["steam_appid"],))
         db.commit()
         return cur.lastrowid
 
@@ -574,7 +644,7 @@ def register_routes(app: Flask):
             today = date.today().isoformat()
             if action == "finish" and is_playing:
                 values["status"] = "completed"
-                values["completed_on"] = today
+                values["completed_on"] = game["story_done_on"] or today
                 # игру уже проходили раньше и начали заново — это ещё одно прохождение
                 if game["completed_on"]:
                     values["times_completed"] = game["times_completed"] + 1
@@ -609,13 +679,44 @@ def register_routes(app: Flask):
                 return redirect(url_for("playing"))
             flash("Сохранено.", "ok")
             return redirect(url_for(STATUS_PAGES[game["status"]]))
-        return render_template("game.html", game=game, form=None, is_new=request.args.get("new"))
+        finale_info = None
+        if game["steam_appid"]:
+            finale_info = story.get_info(get_db(), get_setting("steam_api_key"), game["steam_appid"])
+        return render_template("game.html", game=game, form=None, is_new=request.args.get("new"),
+                               finale=finale_info, finale_labels=story.METHOD_LABELS)
+
+    @app.post("/games/<int:game_id>/finale")
+    def set_finale(game_id):
+        """Финальное достижение выбрано вручную (или сброшено на автоопределение)."""
+        game = load_game(game_id)
+        if not game["steam_appid"]:
+            abort(400)
+        db = get_db()
+        story.set_manual(db, game["steam_appid"], request.form.get("apiname") or None)
+        key, steamid = get_setting("steam_api_key"), get_setting("steam_id")
+        info = story.get_info(db, key, game["steam_appid"])
+        finale = None
+        if key and steamid:
+            ach = steam_sync.achievements(key, steamid, game["steam_appid"])
+            finale = story.finished_on(info, ach["times"]) if ach else None
+        story_date, story_ach = finale or (None, None)
+        db.execute("UPDATE games SET story_done_on = ?, story_ach = ? WHERE id = ?", (story_date, story_ach, game_id))
+        if finale and game["status"] == "completed" and not game["completed_on"]:
+            db.execute("UPDATE games SET completed_on = ? WHERE id = ?", (story_date, game_id))
+        db.commit()
+        if finale:
+            flash(f"🏁 Достижение «{story_ach}» получено {date.fromisoformat(story_date).strftime('%d.%m.%Y')}.", "ok")
+        else:
+            flash("Финальное достижение сохранено. Пока оно не получено.", "ok")
+        return redirect(url_for("edit_game", game_id=game_id) + "#finale")
 
     @app.post("/games/<int:game_id>/delete")
     def delete_game(game_id):
         game = load_game(game_id)
         db = get_db()
         db.execute("DELETE FROM games WHERE id = ?", (game_id,))
+        if game["steam_appid"]:
+            db.execute("INSERT OR IGNORE INTO sync_ignore(appid) VALUES(?)", (game["steam_appid"],))
         db.commit()
         remove_cover_file(game["cover"])
         flash(f"«{game['title']}» удалена.", "ok")
@@ -637,7 +738,15 @@ def register_routes(app: Flask):
             msg = f"Steam: обновлено игр — {stats['updated']}."
             if stats["not_owned"]:
                 msg += f" Не найдено в аккаунте — {stats['not_owned']}."
+            if stats["story_dated"]:
+                msg += f" Точная дата прохождения по достижениям — у {stats['story_dated']}."
             flash(msg, "ok")
+            if stats["added"]:
+                flash(f"🏁 По достижениям найдены пройденные игры, их добавлено в библиотеку — "
+                      f"{len(stats['added'])}: {', '.join(stats['added'])}.", "ok")
+            if stats["story_flagged"]:
+                flash(f"🏁 Похоже, сюжет уже пройден: {', '.join(stats['story_flagged'])} — "
+                      f"открой карточку и нажми «Пройдено ✓».", "ok")
         # хотелки без оценки 100% (например, добавленные до появления оценок) — досчитываем
         db = get_db()
         for row in db.execute(
