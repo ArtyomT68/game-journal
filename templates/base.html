@@ -19,13 +19,10 @@
     <a href="{{ url_for('recommendations') }}" class="{{ 'on' if ep == 'recommendations' }}">Рекомендации</a>
     <a href="{{ url_for('timeline') }}" class="{{ 'on' if ep == 'timeline' }}">Хронология</a>
     <a href="{{ url_for('import_page') }}" class="{{ 'on' if ep == 'import_page' }}">Импорт</a>
+    <a href="{{ url_for('explore') }}" class="nav-icon {{ 'on' if ep in ('explore', 'explore_game') }}" title="Поиск игр" aria-label="Поиск игр">🔍</a>
     <a href="{{ url_for('settings') }}" class="{{ 'on' if ep == 'settings' }}" title="Настройки" aria-label="Настройки">⚙</a>
   </nav>
   <div class="spacer"></div>
-  <form class="topsearch" method="get" action="{{ url_for('explore') }}">
-    <input type="search" name="q" placeholder="🔍 Найти игру…" autocomplete="off" data-suggest
-           value="{{ request.args.get('q', '') if ep == 'explore' else '' }}">
-  </form>
   <form method="post" action="{{ url_for('steam_sync_route') }}" class="inline" data-busy="Синхронизация…">
     <button class="btn steam" type="submit" title="Синхронизировать Steam: время, достижения и пройденные игры. В первый раз — несколько минут">⟳ Steam</button>
   </form>

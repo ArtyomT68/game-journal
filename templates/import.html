@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Импорт — Game Journal{% endblock %}
 {% block content %}
+{% macro tag_select(name, empty) %}
+  <select name="{{ name }}">
+    <option value="">{{ empty }}</option>
+    {% for t in tag_options %}<option value="{{ t.tagid }}">{{ t.name }}</option>{% endfor %}
+  </select>
+{% endmacro %}
 <div class="panel">
   <h2>Импорт из Steam</h2>
   {% if not configured %}
@@ -11,16 +17,66 @@
   {% elif not owned %}
     <p class="sub">Все игры из Steam, в которые ты играл, уже в библиотеке.</p>
   {% else %}
-    <p class="sub">Игры из аккаунта, которых нет в библиотеке (по наигранному времени). Добавь те, что прошёл.</p>
-    <div class="toolbar">
-      <input class="search" type="search" placeholder="🔍 Найти среди {{ owned | length }} игр…" data-filter-list=".import-list" autofocus>
-      <span class="sub filter-count" data-filter-count></span>
-    </div>
+    <p class="sub">Игры из аккаунта, которых нет в библиотеке. Добавь те, что прошёл.</p>
+
+    <form class="explore-form" id="import-filters" onsubmit="return false">
+      <div class="toolbar">
+        <input class="search" type="search" name="q" placeholder="🔍 Найти среди {{ owned | length }} игр…" autofocus>
+        <button class="btn ghost" type="button" data-toggle-filters>⚙ Фильтры</button>
+        <span class="sub filter-count" data-filter-count></span>
+      </div>
+      <div class="filters" hidden>
+        <label>Жанр / тег {{ tag_select('tag', 'любой') }}</label>
+        <label>и ещё тег {{ tag_select('tag2', '—') }}</label>
+        <label>Год выхода
+          <span class="range">
+            <input type="number" name="year_from" min="1980" max="{{ this_year + 1 }}" placeholder="с">
+            <input type="number" name="year_to" min="1980" max="{{ this_year + 1 }}" placeholder="по">
+          </span></label>
+        <label>Отзывы
+          <select name="rating">
+            {% for v, l in [(0, 'любые'), (70, 'от 70% положительных'), (80, 'от 80%'), (90, 'от 90%')] %}
+              <option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select></label>
+        <label>Популярность
+          <select name="pop">
+            {% for v, l in [(0, 'любая'), (1000, 'от 1 000 отзывов'), (10000, 'от 10 000'), (50000, 'от 50 000')] %}
+              <option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select></label>
+        <label>Сортировка
+          <select name="sort">
+            <option value="playtime">по наигранному времени</option>
+            <option value="name">по названию</option>
+            <option value="new">сначала новые</option>
+            <option value="reviews">по отзывам</option>
+          </select></label>
+        <div class="filter-actions">
+          <button class="btn ghost" type="reset">Сбросить</button>
+        </div>
+      </div>
+    </form>
+
+    {% if loading %}
+      <div class="reco-status running" id="meta-status">
+        <span class="spinner"></span>
+        <span data-meta-text>Загружаю жанры и годы выхода: {{ loading.done or 0 }} из {{ loading.total }}</span>
+        <small>Фильтры по жанру, году и отзывам заработают для всех игр, когда загрузка закончится.
+          Первый раз это занимает минуту-другую, потом — мгновенно.</small>
+      </div>
+    {% endif %}
+
     <div class="import-list">
       {% for g in owned %}
-        <form method="post" action="{{ url_for('add_from_catalog') }}" class="result" data-name="{{ g.name | lower }}">
+        {% set m = meta.get(g.appid, {}) %}
+        <form method="post" action="{{ url_for('add_from_catalog') }}" class="result"
+              data-name="{{ g.name | lower }}" data-playtime="{{ g.playtime_forever }}"
+              data-tags="{{ (m.tags or []) | join(',') }}" data-year="{{ m.year or '' }}"
+              data-rating="{{ m.rating if m.rating is not none else '' }}" data-reviews="{{ m.reviews or 0 }}">
           <img src="{{ cover_url(g.appid) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-          <div class="t"><b>{{ g.name }}</b><small>{{ g.playtime_forever | playtime }} в Steam</small></div>
+          <div class="t"><b>{{ g.name }}</b>
+            <small>{{ g.playtime_forever | playtime }} в Steam
+              {%- if m.year %} · {{ m.year }}{% endif %}
+              {%- if m.rating is not none and m.reviews %} · 👍 {{ m.rating }}%{% endif %}</small></div>
           <input type="hidden" name="source" value="steam">
           <input type="hidden" name="id" value="{{ g.appid }}">
           <input type="hidden" name="title" value="{{ g.name }}">
@@ -29,7 +85,7 @@
         </form>
       {% endfor %}
     </div>
-    <div class="empty" data-filter-empty hidden>Ничего не найдено.</div>
+    <div class="empty" data-filter-empty hidden>Ничего не найдено — ослабь фильтры.</div>
   {% endif %}
 </div>
 {% endblock %}

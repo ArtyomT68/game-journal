@@ -17,6 +17,7 @@ from flask import (Flask, abort, flash, jsonify, redirect, render_template,
 
 import catalog
 import estimates
+import library_meta
 import recommend
 import steam_sync
 import story
@@ -770,9 +771,27 @@ def register_routes(app: Flask):
                     (g for g in games.values() if g["appid"] not in have and g.get("playtime_forever")),
                     key=lambda g: g["playtime_forever"], reverse=True,
                 )
+        # жанры, годы и отзывы для фильтров: из кэша, недостающее догружается в фоне
+        meta, loading = {}, None
+        if owned:
+            db = get_db()
+            appids = [g["appid"] for g in owned]
+            tag_ids = {t["name"]: t["tagid"] for t in catalog.steam_tags("english")}
+            meta = library_meta.rows_meta(db, appids, tag_ids)
+            if todo := library_meta.missing(db, appids):
+                library_meta.start(app.config["DATABASE"], todo)
+            status = library_meta.get_status(db)
+            loading = status if status["state"] == "running" else None
         return render_template("import.html", owned=owned, error=error,
                                configured=bool(key and steamid),
-                               cover_url=catalog.steam_cover_url)
+                               cover_url=catalog.steam_cover_url, meta=meta, loading=loading,
+                               tag_options=sorted(catalog.steam_tags()[:200], key=lambda t: t["name"].lower()),
+                               this_year=date.today().year)
+
+    @app.get("/api/library-meta")
+    def api_library_meta():
+        """Ход фоновой загрузки жанров и годов для вкладки «Импорт»."""
+        return jsonify(library_meta.get_status(get_db()))
 
     @app.route("/settings", methods=["GET", "POST"])
     def settings():

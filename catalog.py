@@ -16,7 +16,7 @@ HEADERS = {"User-Agent": "GameJournal/1.0 (personal use)"}
 
 STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/"
 STORE_SEARCH = "https://store.steampowered.com/search/results/"
-STEAM_TAGS = "https://store.steampowered.com/tagdata/populartags/russian"
+STEAM_TAGS = "https://store.steampowered.com/tagdata/populartags/{lang}"
 COVERS_DIR = Path(__file__).resolve().parent / "static" / "covers"
 STEAM_DETAILS = "https://store.steampowered.com/api/appdetails"
 STEAM_COVER = "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
@@ -163,19 +163,20 @@ def search_steam(query: str, limit: int = 30) -> list[dict]:
     return results[:limit]
 
 
-_tags_cache: tuple[float, list[dict]] | None = None
+_tags_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-def steam_tags() -> list[dict]:
-    """Популярные теги Steam с русскими названиями: [{tagid, name}], кэш на сутки."""
-    global _tags_cache
-    if _tags_cache and time.time() - _tags_cache[0] < 86400:
-        return _tags_cache[1]
+def steam_tags(lang: str = "russian") -> list[dict]:
+    """Популярные теги Steam: [{tagid, name}], кэш на сутки.
+    russian — для подписей; english — чтобы сопоставлять с тегами SteamSpy (они на английском)."""
+    hit = _tags_cache.get(lang)
+    if hit and time.time() - hit[0] < 86400:
+        return hit[1]
     try:
-        tags = requests.get(STEAM_TAGS, headers=HEADERS, timeout=TIMEOUT).json()
+        tags = requests.get(STEAM_TAGS.format(lang=lang), headers=HEADERS, timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
-        return _tags_cache[1] if _tags_cache else []
-    _tags_cache = (time.time(), tags)
+        return hit[1] if hit else []
+    _tags_cache[lang] = (time.time(), tags)
     return tags
 
 

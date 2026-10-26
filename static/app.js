@@ -289,3 +289,72 @@ document.querySelectorAll("[data-filter-list]").forEach(input => {
     if (empty) empty.hidden = shown > 0;
   });
 });
+
+// Вкладка «Импорт»: фильтры как в поиске — по названию, жанру, году, отзывам, популярности
+const importForm = document.getElementById("import-filters");
+if (importForm) {
+  const list = document.querySelector(".import-list");
+  const rows = [...list.querySelectorAll("[data-name]")];
+  const count = document.querySelector("[data-filter-count]");
+  const empty = document.querySelector("[data-filter-empty]");
+  let touched = false;
+
+  const num = v => (v === "" || v == null ? null : Number(v));
+  const sorters = {
+    playtime: (a, b) => b.dataset.playtime - a.dataset.playtime,
+    name: (a, b) => a.dataset.name.localeCompare(b.dataset.name),
+    new: (a, b) => (num(b.dataset.year) || 0) - (num(a.dataset.year) || 0),
+    reviews: (a, b) => (num(b.dataset.rating) || 0) - (num(a.dataset.rating) || 0),
+  };
+
+  function apply() {
+    const f = Object.fromEntries(new FormData(importForm));
+    const words = (f.q || "").toLowerCase().split(/\s+/).filter(Boolean);
+    const tags = [f.tag, f.tag2].filter(Boolean);
+    const yFrom = num(f.year_from), yTo = num(f.year_to), rating = num(f.rating), pop = num(f.pop);
+    let shown = 0;
+    for (const row of rows) {
+      const d = row.dataset;
+      const rowTags = d.tags ? d.tags.split(",") : [];
+      const year = num(d.year);
+      const ok = words.every(w => d.name.includes(w))
+        && tags.every(t => rowTags.includes(t))
+        && (!yFrom || (year && year >= yFrom))
+        && (!yTo || (year && year <= yTo))
+        && (!rating || (num(d.rating) || 0) >= rating)
+        && (!pop || (num(d.reviews) || 0) >= pop);
+      row.hidden = !ok;
+      shown += ok;
+    }
+    rows.slice().sort(sorters[f.sort] || sorters.playtime).forEach(r => list.append(r));
+    const filtering = words.length || tags.length || yFrom || yTo || rating || pop;
+    count.textContent = filtering ? `найдено: ${shown} из ${rows.length}` : "";
+    empty.hidden = shown > 0;
+  }
+
+  importForm.addEventListener("input", () => { touched = true; apply(); });
+  importForm.addEventListener("change", () => { touched = true; apply(); });
+  importForm.addEventListener("reset", () => setTimeout(apply));
+
+  // пока в фоне догружаются жанры и годы — показываем ход; когда готово, обновляем страницу,
+  // если фильтрами ещё не пользовались (иначе предлагаем обновить, чтобы не сбросить выбор)
+  const status = document.getElementById("meta-status");
+  if (status) {
+    const text = status.querySelector("[data-meta-text]");
+    const poll = setInterval(async () => {
+      let s;
+      try { s = await (await fetch("/api/library-meta")).json(); } catch { return; }
+      if (s.state === "running") {
+        text.textContent = `Загружаю жанры и годы выхода: ${s.done} из ${s.total}`;
+        return;
+      }
+      clearInterval(poll);
+      if (s.state === "done" && !touched) { location.reload(); return; }
+      status.classList.remove("running");
+      status.querySelector(".spinner")?.remove();
+      text.innerHTML = s.state === "done"
+        ? 'Жанры и годы загружены. <a href="">Обновить страницу</a>, чтобы фильтры работали для всех игр.'
+        : "Не удалось загрузить жанры для части игр — фильтры работают по тем, что есть.";
+    }, 3000);
+  }
+}
