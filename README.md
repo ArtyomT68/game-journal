@@ -56,7 +56,7 @@
 
 ### Вариант 1. Портативная версия — Python не нужен (Windows)
 
-1. Открой страницу [**Releases**](https://github.com/ArtyomT68/game-journal/releases/latest)
+1. Открой страницу [**Releases**](https://github.com/WhiteHio/game-journal/releases/latest)
    и скачай архив **`GameJournal-…-windows.zip`** (≈13 МБ).
 2. Распакуй его в любую папку, например `D:\Games\GameJournal`.
 3. Дважды щёлкни **`start.bat`** — сайт сам откроется в браузере.
@@ -76,7 +76,7 @@
 
 1. Скачай код (**Code → Download ZIP**) и распакуй, или склонируй:
    ```bat
-   git clone https://github.com/ArtyomT68/game-journal.git
+   git clone https://github.com/WhiteHio/game-journal.git
    ```
 2. Дважды щёлкни **`start.bat`**. При первом запуске он создаст виртуальное окружение
    и установит библиотеки (около минуты); если `requirements.txt` изменится после обновления,
