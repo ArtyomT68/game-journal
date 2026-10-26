@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Рекомендации — Game Journal{% endblock %}
+{% block content %}
+{% set running = status.state == 'running' %}
+<div class="page-head reco-head">
+  <div>
+    <h2>Рекомендации</h2>
+    <p class="sub">Игры, похожие на то, что ты прошёл и хочешь пройти. Подбор идёт по тегам Steam:
+      пройденные игры важнее хотелок, а перепройденные, закрытые на 100% и высоко оценённые — ещё важнее.</p>
+  </div>
+  <form method="post" action="{{ url_for('recommendations_refresh') }}">
+    <button class="btn" {{ 'disabled' if running }}>⟳ Обновить рекомендации</button>
+  </form>
+</div>
+
+{% if running %}
+  <div class="reco-status running"><span class="spinner"></span>{{ status.text }}
+    <small>Первый расчёт занимает пару минут, следующие — быстрее. Страница обновится сама.</small></div>
+  <script>setTimeout(() => location.reload(), 3000);</script>
+{% elif status.state == 'error' %}
+  <div class="flash error">{{ status.text }}</div>
+{% endif %}
+
+{% if profile %}
+  <div class="taste">
+    <span class="taste-title">Твой вкус:</span>
+    {% set peak = profile[0][1] %}
+    {% for tag, w in profile %}
+      <span class="taste-tag" style="--w: {{ (w / peak * 100) | round | int }}%">{{ tag }}</span>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if recs %}
+  <section class="grid reco-grid">
+    {% for r in recs %}
+      <div class="card reco">
+        <a class="cover" href="{{ url_for('explore_game', source='steam', ext_id=r.appid, title=r.name) }}">
+          <img src="{{ cover_url(r.appid) }}" alt="" loading="lazy"
+               onerror="this.onerror=null; this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ r.appid }}/header.jpg'">
+          <span class="badge match" title="Насколько игра совпадает с твоим вкусом">{{ (r.score * 100) | round | int }}%</span>
+        </a>
+        <div class="meta">
+          <a class="reco-name" href="{{ url_for('explore_game', source='steam', ext_id=r.appid, title=r.name) }}" title="{{ r.name }}">{{ r.name }}</a>
+          <div class="row"><span>👍 {{ (r.rating * 100) | round | int }}% отзывов</span></div>
+          {% set similar = loads(r.similar) %}
+          {% if similar %}<div class="reco-similar">похожа на: {{ similar | join(', ') }}</div>{% endif %}
+          <div class="reco-tags">{% for t in loads(r.tags) %}<span>{{ t }}</span>{% endfor %}</div>
+          <div class="reco-actions">
+            <form method="post" action="{{ url_for('add_from_catalog') }}">
+              <input type="hidden" name="source" value="steam">
+              <input type="hidden" name="id" value="{{ r.appid }}">
+              <input type="hidden" name="title" value="{{ r.name }}">
+              <button class="btn small" name="status" value="wishlist" data-busy-btn="…">★ Хочу</button>
+            </form>
+            <form method="post" action="{{ url_for('recommendations_hide', appid=r.appid) }}">
+              <button class="icon" title="Не интересно — больше не показывать">✕</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </section>
+{% elif not running and status.state != 'error' %}
+  <div class="empty">
+    {% if status.state == 'never' %}
+      Рекомендаций пока нет. Нажми «⟳ Обновить рекомендации» — сайт изучит твою библиотеку и хотелки.
+    {% else %}
+      Все рекомендации разобраны. Нажми «⟳ Обновить рекомендации», чтобы подобрать новые.
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

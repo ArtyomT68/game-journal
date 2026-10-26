@@ -8,17 +8,18 @@
 </head>
 <body>
 <header class="top">
-  <a class="logo" href="{{ url_for('index') }}"><i></i>Game Journal</a>
+  <a class="logo" href="{{ url_for('index') }}" title="Game Journal"><i></i><span>Game Journal</span></a>
   <nav class="nav">
     {% set ep = request.endpoint %}
     <a href="{{ url_for('index') }}" class="{{ 'on' if ep == 'index' }}">Библиотека</a>
-    <a href="{{ url_for('playing') }}" class="{{ 'on' if ep == 'playing' }}">Сейчас прохожу
+    <a href="{{ url_for('playing') }}" class="{{ 'on' if ep == 'playing' }}" title="Сейчас прохожу">Прохожу
       {%- if playing_count %} <span class="count">{{ playing_count }}</span>{% endif %}</a>
     <a href="{{ url_for('wishlist') }}" class="{{ 'on' if ep == 'wishlist' }}">Хочу пройти
       {%- if wishlist_count %} <span class="count wish">{{ wishlist_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('recommendations') }}" class="{{ 'on' if ep == 'recommendations' }}">Рекомендации</a>
     <a href="{{ url_for('timeline') }}" class="{{ 'on' if ep == 'timeline' }}">Хронология</a>
     <a href="{{ url_for('import_page') }}" class="{{ 'on' if ep == 'import_page' }}">Импорт</a>
-    <a href="{{ url_for('settings') }}" class="{{ 'on' if ep == 'settings' }}">Настройки</a>
+    <a href="{{ url_for('settings') }}" class="{{ 'on' if ep == 'settings' }}" title="Настройки" aria-label="Настройки">⚙</a>
   </nav>
   <div class="spacer"></div>
   <form class="topsearch" method="get" action="{{ url_for('explore') }}">

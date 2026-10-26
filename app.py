@@ -2,6 +2,7 @@
 
 Запуск:  .venv\\Scripts\\python app.py   → http://localhost:5000
 """
+import json
 import os
 import re
 import secrets
@@ -16,6 +17,7 @@ from flask import (Flask, abort, flash, jsonify, redirect, render_template,
 
 import catalog
 import estimates
+import recommend
 import steam_sync
 from db import close_db, get_db, get_setting, init_db, set_setting
 
@@ -86,6 +88,8 @@ def create_app() -> Flask:
     app.config["DATABASE"] = Path(os.environ.get("GAME_JOURNAL_DB") or BASE_DIR / "data" / "games.db")
     app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
     init_db(app.config["DATABASE"])
+    with sqlite3.connect(app.config["DATABASE"]) as conn:
+        recommend.init(conn)
     app.secret_key = _load_secret_key(app.config["DATABASE"])
     app.teardown_appcontext(close_db)
     register_filters(app)
@@ -269,6 +273,38 @@ def register_routes(app: Flask):
             "SELECT * FROM games WHERE status = 'wishlist' ORDER BY wish_rank IS NULL, wish_rank, created_at"
         ).fetchall()
         return render_template("wishlist.html", games=games)
+
+    @app.get("/recommendations")
+    def recommendations():
+        db = get_db()
+        status = recommend.get_status(db)
+        # сервер перезапускали во время расчёта — расчёт прервался
+        if status["state"] == "running" and not recommend.is_running():
+            status = {"state": "error", "text": "Расчёт прервался (сайт перезапускали). Нажми «Обновить рекомендации»."}
+        recs = db.execute(
+            """SELECT r.* FROM recommendations r
+               WHERE r.appid NOT IN (SELECT steam_appid FROM games WHERE steam_appid IS NOT NULL)
+                 AND r.appid NOT IN (SELECT appid FROM reco_hidden)
+               ORDER BY r.score DESC"""
+        ).fetchall()
+        profile = json.loads(get_setting("reco_profile") or "[]")
+        return render_template(
+            "recommendations.html", recs=recs, status=status, profile=profile,
+            cover_url=catalog.steam_cover_url, loads=json.loads,
+        )
+
+    @app.post("/recommendations/refresh")
+    def recommendations_refresh():
+        if not recommend.start(app.config["DATABASE"]):
+            flash("Рекомендации уже считаются — подожди немного.", "ok")
+        return redirect(url_for("recommendations"))
+
+    @app.post("/recommendations/<int:appid>/hide")
+    def recommendations_hide(appid):
+        db = get_db()
+        db.execute("INSERT OR IGNORE INTO reco_hidden(appid) VALUES(?)", (appid,))
+        db.commit()
+        return redirect(url_for("recommendations"))
 
     @app.post("/games/<int:game_id>/move")
     def move_wish(game_id):
@@ -644,6 +680,34 @@ def register_routes(app: Flask):
 
 app = create_app()
 
+def lan_address() -> str | None:
+    """IP компьютера в домашней сети — чтобы открыть сайт с телефона."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))  # пакеты не отправляются, так узнаём адрес сетевой карты
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def main():
+    import threading
+    import webbrowser
+
+    from waitress import serve
+
+    port = int(os.environ.get("GAME_JOURNAL_PORT", 5000))
+    url = f"http://localhost:{port}"
+    print(f"Game Journal запущен: {url}")
+    if ip := lan_address():
+        print(f"С телефона и других устройств в сети: http://{ip}:{port}")
+    print("Не закрывай это окно, пока пользуешься сайтом. Остановить — Ctrl+C.\n")
+    if not os.environ.get("GAME_JOURNAL_NO_BROWSER"):
+        threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+    # 0.0.0.0 — сайт доступен с других устройств в домашней сети
+    serve(app, host="0.0.0.0", port=port, threads=8)
+
+
 if __name__ == "__main__":
-    # 0.0.0.0 — сайт будет доступен с других устройств в домашней сети
-    app.run(host="0.0.0.0", port=5000)
+    main()
