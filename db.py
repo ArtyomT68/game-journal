@@ -64,9 +64,19 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
+BUSY_TIMEOUT = 30  # секунд: сколько ждать, если база занята фоновой задачей
+
+
+def connect(path) -> sqlite3.Connection:
+    """Подключение к базе. Все части сайта (страницы, рекомендации, синхронизация, загрузка
+    жанров) подключаются через эту функцию: при занятой базе ждём, а не падаем с ошибкой
+    «database is locked»."""
+    return sqlite3.connect(path, timeout=BUSY_TIMEOUT)
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        g.db = sqlite3.connect(current_app.config["DATABASE"])
+        g.db = connect(current_app.config["DATABASE"])
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
@@ -80,7 +90,10 @@ def close_db(_exc=None):
 
 def init_db(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as conn:
+    with connect(path) as conn:
+        # WAL: чтение не ждёт записи — страницы открываются, пока фоновые задачи пишут в базу.
+        # Режим запоминается в самом файле базы.
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
 

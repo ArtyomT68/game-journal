@@ -2,6 +2,7 @@
 
 Запуск:  .venv\\Scripts\\python app.py   → http://localhost:5000
 """
+import io
 import json
 import os
 import re
@@ -13,19 +14,21 @@ from pathlib import Path
 
 import requests
 from flask import (Flask, abort, flash, jsonify, redirect, render_template,
-                   request, url_for)
+                   request, send_file, url_for)
 
+import backup
 import catalog
 import estimates
 import library_meta
 import recommend
 import steam_sync
 import story
-from db import close_db, get_db, get_setting, init_db, set_setting
+from db import close_db, connect, get_db, get_setting, init_db, set_setting
 
 BASE_DIR = Path(__file__).resolve().parent
 COVERS_DIR = BASE_DIR / "static" / "covers"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_COVER_SIZE = 10 * 1024 * 1024
 
 SORTS = {
     "date": "completed_on IS NULL, completed_on DESC, created_at DESC",
@@ -88,9 +91,10 @@ def rarity_label(rarest: float | None) -> str | None:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["DATABASE"] = Path(os.environ.get("GAME_JOURNAL_DB") or BASE_DIR / "data" / "games.db")
-    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 1 ГБ — для восстановления из резервной копии
+    app.config["BACKUPS_DIR"] = Path(app.config["DATABASE"]).parent / "backups"
     init_db(app.config["DATABASE"])
-    with sqlite3.connect(app.config["DATABASE"]) as conn:
+    with connect(app.config["DATABASE"]) as conn:
         recommend.init(conn)
         story.init(conn)
     app.secret_key = _load_secret_key(app.config["DATABASE"])
@@ -101,7 +105,7 @@ def create_app() -> Flask:
 
 
 def _load_secret_key(db_path: Path) -> str:
-    with sqlite3.connect(db_path) as conn:
+    with connect(db_path) as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = 'secret_key'").fetchone()
         if row:
             return row[0]
@@ -164,6 +168,8 @@ def save_uploaded_cover(file) -> str | None:
     ext = Path(file.filename).suffix.lower()
     if ext not in IMAGE_EXTS:
         raise ValueError("Обложка должна быть картинкой (jpg, png, webp, gif).")
+    if (request.content_length or 0) > MAX_COVER_SIZE:
+        raise ValueError("Обложка слишком большая — до 10 МБ.")
     COVERS_DIR.mkdir(parents=True, exist_ok=True)
     name = f"{uuid.uuid4().hex}{ext}"
     file.save(COVERS_DIR / name)
@@ -827,7 +833,46 @@ def register_routes(app: Flask):
             steam_api_key=get_setting("steam_api_key"),
             steam_id=get_setting("steam_id"),
             rawg_api_key=get_setting("rawg_api_key"),
+            backups=backup.list_backups(app.config["BACKUPS_DIR"]),
+            auto_keep=backup.AUTO_KEEP,
         )
+
+    # --- резервные копии
+
+    @app.get("/backup")
+    def backup_download():
+        """Скачать резервную копию: база и обложки одним архивом."""
+        data = backup.make_backup(Path(app.config["DATABASE"]), COVERS_DIR)
+        name = f"game-journal-backup-{date.today().isoformat()}.zip"
+        return send_file(io.BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=name)
+
+    @app.get("/backup/saved/<name>")
+    def backup_saved(name):
+        """Скачать одну из копий, сохранённых сайтом в data/backups."""
+        names = {b["name"] for b in backup.list_backups(app.config["BACKUPS_DIR"])}
+        if name not in names:  # только файлы из списка — никаких путей вида ../
+            abort(404)
+        return send_file(app.config["BACKUPS_DIR"] / name, mimetype="application/zip",
+                         as_attachment=True, download_name=name)
+
+    @app.post("/restore")
+    def backup_restore():
+        file = request.files.get("backup")
+        if not file or not file.filename:
+            flash("Выбери файл резервной копии (.zip).", "error")
+            return redirect(url_for("settings") + "#backup")
+        if not request.form.get("confirm"):
+            flash("Поставь галочку, что текущие данные будут заменены.", "error")
+            return redirect(url_for("settings") + "#backup")
+        close_db()  # своё подключение к базе этого запроса — закрыть до замены
+        try:
+            result = backup.restore(Path(app.config["DATABASE"]), COVERS_DIR, app.config["BACKUPS_DIR"], file.stream)
+        except backup.BackupError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings") + "#backup")
+        flash(f"Данные восстановлены: игр — {result['games']}, обложек — {result['covers']}. "
+              f"Прежние данные сохранены в data/backups/{result['safety']}.", "ok")
+        return redirect(url_for("index"))
 
 
 app = create_app()
@@ -841,6 +886,14 @@ def lan_address() -> str | None:
             return s.getsockname()[0]
     except OSError:
         return None
+
+
+def daily_backup():
+    try:
+        if saved := backup.auto_backup(Path(app.config["DATABASE"]), COVERS_DIR, app.config["BACKUPS_DIR"]):
+            print(f"Сделана ежедневная резервная копия: data/backups/{saved.name}")
+    except Exception as exc:  # копия не должна мешать работе сайта
+        print(f"Не удалось сделать ежедневную резервную копию: {exc}")
 
 
 def main():
@@ -857,6 +910,8 @@ def main():
     print("Не закрывай это окно, пока пользуешься сайтом. Остановить — Ctrl+C.\n")
     if not os.environ.get("GAME_JOURNAL_NO_BROWSER"):
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+    # ежедневная резервная копия — в фоне, чтобы не задерживать запуск
+    threading.Thread(target=daily_backup, daemon=True).start()
     # 0.0.0.0 — сайт доступен с других устройств в домашней сети
     serve(app, host="0.0.0.0", port=port, threads=8)
 

@@ -26,6 +26,7 @@ from datetime import datetime
 import requests
 
 import catalog
+from db import connect
 
 STEAMSPY = "https://steamspy.com/api.php"
 REQUEST_PAUSE = 1.0          # SteamSpy: не чаще раза в секунду
@@ -369,7 +370,7 @@ def build_profile(conn, progress) -> tuple[dict[str, float], list[tuple[str, dic
 
 def compute(db_path) -> None:
     """Полный расчёт рекомендаций; результат — в таблице recommendations."""
-    conn = sqlite3.connect(db_path)
+    conn = connect(db_path)
     init(conn)
     progress = lambda text: _set_status(conn, "running", text)
     try:
@@ -514,7 +515,7 @@ def start(db_path) -> bool:
         finally:
             _lock.release()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect(db_path) as conn:
         init(conn)
         _set_status(conn, "running", "Запускаю расчёт…")
     threading.Thread(target=run, daemon=True).start()

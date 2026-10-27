@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 
 import recommend
+from db import connect
 
 _lock = threading.Lock()
 RETRY_AFTER = 24 * 3600
@@ -50,7 +51,7 @@ def start(db_path, appids: list[int]) -> bool:
         return False
 
     def run():
-        conn = sqlite3.connect(db_path)
+        conn = connect(db_path)
         try:
             for i, appid in enumerate(appids, 1):
                 _set_status(conn, state="running", done=i - 1, total=len(appids))
@@ -64,7 +65,7 @@ def start(db_path, appids: list[int]) -> bool:
             conn.close()
             _lock.release()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect(db_path) as conn:
         recommend.init(conn)
         _set_status(conn, state="running", done=0, total=len(appids))
     threading.Thread(target=run, daemon=True).start()

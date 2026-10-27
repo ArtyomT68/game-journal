@@ -293,3 +293,13 @@ textarea.input { resize: vertical; }
   padding: 9px 12px; color: var(--text); font: 14px "Segoe UI", system-ui, sans-serif; }
 /* у новых игр нет вертикальной обложки — показываем горизонтальную картинку магазина целиком */
 .cover img.wide, .poster img.wide { object-fit: contain; background: radial-gradient(circle at 50% 40%, #2b2f45, #11131b); }
+
+/* резервные копии */
+.backup-panel { margin-top: 20px; }
+.backup-panel h3 { margin: 22px 0 8px; font-size: 16px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--text); text-transform: none;
+  letter-spacing: 0; }
+.check input { margin-top: 3px; }
+.backup-list { list-style: none; margin-top: 8px; }
+.backup-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.backup-list span { color: var(--muted); }

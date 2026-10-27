@@ -1,5 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Настройки — Game Journal{% endblock %}
+{% block title %}Настройки — Game Journal<div class="panel narrow backup-panel" id="backup">
+  <h2>Резервная копия</h2>
+  <p class="sub">Все твои данные — игры, статистика, оценки, настройки и обложки — в одном zip-архиве.
+    Сохрани его в облако или на другой диск. В архиве есть и ключ Steam API — не выкладывай его в открытый доступ.</p>
+  <a class="btn" href="{{ url_for('backup_download') }}">⬇ Скачать резервную копию</a>
+
+  <h3>Восстановить из копии</h3>
+  <form method="post" action="{{ url_for('backup_restore') }}" enctype="multipart/form-data" class="fields"
+        data-confirm="Заменить все текущие данные данными из архива?">
+    <div class="f wide"><input class="input" type="file" name="backup" accept=".zip,application/zip" required></div>
+    <label class="f wide check"><input type="checkbox" name="confirm" value="1">
+      Понимаю, что текущие данные будут заменены. Перед этим сайт сам сохранит их копию в <code>data/backups/</code>.</label>
+    <div class="actions wide"><button class="btn ghost" type="submit">Восстановить</button></div>
+  </form>
+
+  <h3>Копии, сохранённые сайтом</h3>
+  <p class="hint">Раз в день при запуске сайт сам делает копию (хранятся последние {{ auto_keep }}),
+    а перед каждым восстановлением — копию прежних данных. Лежат в папке <code>data/backups/</code>.</p>
+  {% if backups %}
+    <ul class="backup-list">
+      {% for b in backups %}
+        <li><a href="{{ url_for('backup_saved', name=b.name) }}">{{ b.name }}</a>
+          <span>{{ b.created.strftime('%d.%m.%Y %H:%M') }} · {{ (b.size / 1024 / 1024) | round(1) }} МБ</span></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="hint">Пока нет — первая появится при следующем запуске сайта.</p>
+  {% endif %}
+</div>
+{% endblock %}
 {% block content %}
 <div class="panel narrow">
   <h2>Настройки</h2>

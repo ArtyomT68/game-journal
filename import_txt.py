@@ -25,7 +25,7 @@ from pathlib import Path
 import requests
 
 import catalog
-from db import init_db
+from db import connect, init_db
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "games.db"
@@ -179,7 +179,7 @@ def main():
     conn = None
     if not args.dry_run:
         init_db(DB_PATH)
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect(DB_PATH)
 
     # created_at растёт по порядку списка, чтобы сортировка «по добавлению» его повторяла
     base_time = datetime.now() - timedelta(minutes=len(entries))

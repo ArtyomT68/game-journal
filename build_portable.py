@@ -32,7 +32,7 @@ APP_NAME = "GameJournal"
 
 # Что попадает в сборку. Личные данные (data/, обложки, import/) — никогда.
 PROJECT_FILES = [
-    "app.py", "catalog.py", "db.py", "estimates.py", "library_meta.py", "recommend.py", "steam_sync.py", "story.py", "import_txt.py",
+    "app.py", "backup.py", "catalog.py", "db.py", "estimates.py", "library_meta.py", "recommend.py", "steam_sync.py", "story.py", "import_txt.py",
     "requirements.txt", "start.bat", "README.md", "LICENSE",
 ]
 PROJECT_DIRS = ["templates", "static"]
