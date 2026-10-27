@@ -134,7 +134,11 @@ def sync_library(db, api_key: str, steamid: str, progress=lambda text: None) -> 
         percent = round(ach["unlocked"] * 100 / ach["total"]) if ach else None
         finale = None
         if ach:
-            finale = story.finished_on(story.get_info(db, api_key, row["steam_appid"]), ach["times"])
+            info = story.get_info(db, api_key, row["steam_appid"])
+            finale = story.finished_on(info, ach["times"])
+            if finale and info.get("ru") is None:  # плашка «сюжет пройден» — с русским названием
+                finale = story.finished_on(story.get_info(db, api_key, row["steam_appid"], russian=True),
+                                           ach["times"])
         story_date, story_ach = finale or (None, None)
         if finale and row["status"] == "completed" and not row["completed_on"]:
             stats["story_dated"] += 1
@@ -193,6 +197,8 @@ def sync_library(db, api_key: str, steamid: str, progress=lambda text: None) -> 
         finale = story.finished_on(info, ach["times"]) if ach else None
         if not finale:
             continue
+        if info.get("ru") is None:
+            finale = story.finished_on(story.get_info(db, api_key, appid, russian=True), ach["times"])
         add_finished_game(db, game, ach, finale, now)
         stats["added"].append(game.get("name") or str(appid))
 

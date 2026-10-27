@@ -12,7 +12,8 @@ Steam не сообщает «игра пройдена», но во многи�
     для игр, где финал назван по последней миссии («Complete the CASPIAN level»).
 
 Если финальное достижение получено — сюжет пройден, дата = дата его получения.
-Список достижений игры кэшируется в базе (таблица story_info).
+Список достижений игры кэшируется в базе (таблица story_info): английский — для распознавания,
+русский (из русской версии Steam) — для показа на сайте.
 """
 import json
 import re
@@ -70,11 +71,14 @@ CREATE TABLE IF NOT EXISTS sync_ignore (
 
 def init(conn):
     conn.executescript(SCHEMA_SQL)
+    if "all_achs_ru" not in {r[1] for r in conn.execute("PRAGMA table_info(story_info)")}:
+        # названия и описания из русской версии Steam: {apiname: [название, описание]}
+        conn.execute("ALTER TABLE story_info ADD COLUMN all_achs_ru TEXT")
 
 
-def _schema(api_key: str, appid: int) -> list[dict] | None:
+def _schema(api_key: str, appid: int, lang: str = "english") -> list[dict] | None:
     try:
-        resp = requests.get(SCHEMA_URL, params={"key": api_key, "appid": appid, "l": "english"}, timeout=TIMEOUT)
+        resp = requests.get(SCHEMA_URL, params={"key": api_key, "appid": appid, "l": lang}, timeout=TIMEOUT)
         resp.raise_for_status()
         return (resp.json().get("game", {}).get("availableGameStats") or {}).get("achievements") or []
     except (requests.RequestException, ValueError):
@@ -114,29 +118,68 @@ def detect(achs: list[dict]) -> dict:
     return {"method": "none", "finals": [], "names": []}
 
 
-def get_info(conn, api_key: str, appid: int, refresh: bool = False) -> dict | None:
+def _russian(api_key: str, appid: int) -> dict[str, list[str]] | None:
+    """Названия и описания достижений из русской версии Steam: {apiname: [название, описание]}."""
+    achs = _schema(api_key, appid, "russian")
+    if achs is None:
+        return None
+    return {a["name"]: [a.get("displayName") or a["name"], a.get("description") or ""] for a in achs}
+
+
+def _localize(info: dict):
+    """Названия финальных достижений — по-русски, если перевод есть."""
+    ru = info.get("ru") or {}
+    info["names"] = [ru[a][0] if a in ru else n for a, n in zip(info["finals"], info["names"])]
+
+
+def get_info(conn, api_key: str, appid: int, refresh: bool = False, russian: bool = False) -> dict | None:
     """Сведения о финале игры из кэша; при отсутствии — из Steam (и сохранить).
+    russian=True — догрузить русские названия, если их ещё нет в кэше (для показа в карточке).
     None — Steam не ответил (попробуем при следующей синхронизации)."""
-    row = conn.execute("SELECT method, finals, names, all_achs FROM story_info WHERE appid = ?", (appid,)).fetchone()
+    row = conn.execute("SELECT method, finals, names, all_achs, all_achs_ru FROM story_info WHERE appid = ?",
+                       (appid,)).fetchone()
     if row and not refresh:
-        return {"method": row[0], "finals": json.loads(row[1] or "[]"), "names": json.loads(row[2] or "[]"),
-                "all": json.loads(row[3] or "[]")}
+        info = {"method": row[0], "finals": json.loads(row[1] or "[]"), "names": json.loads(row[2] or "[]"),
+                "all": json.loads(row[3] or "[]"), "ru": json.loads(row[4]) if row[4] else None}
+        if info["ru"] is None and russian and api_key and info["all"]:
+            info["ru"] = _russian(api_key, appid)
+            if info["ru"] is not None:
+                conn.execute("UPDATE story_info SET all_achs_ru = ? WHERE appid = ?",
+                             (json.dumps(info["ru"], ensure_ascii=False), appid))
+                conn.commit()
+        _localize(info)
+        return info
     if not api_key:
         return None
     achs = _schema(api_key, appid)
     if achs is None:
         return None
-    info = detect(achs)
+    info = detect(achs)  # распознаём по английским описаниям — правила написаны под них
     info["all"] = [[a["name"], a.get("displayName") or a["name"], a.get("description") or ""] for a in achs]
+    info["ru"] = _russian(api_key, appid) if achs else {}
     if row and row[0] == "manual":  # ручной выбор не перетираем
         info.update(method="manual", finals=json.loads(row[1] or "[]"), names=json.loads(row[2] or "[]"))
     conn.execute(
-        "INSERT OR REPLACE INTO story_info(appid, method, finals, names, all_achs, checked_at) VALUES(?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO story_info(appid, method, finals, names, all_achs, all_achs_ru, checked_at) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?)",
         (appid, info["method"], json.dumps(info["finals"]), json.dumps(info["names"], ensure_ascii=False),
-         json.dumps(info["all"], ensure_ascii=False), datetime.now().isoformat(timespec="seconds")),
+         json.dumps(info["all"], ensure_ascii=False),
+         json.dumps(info["ru"], ensure_ascii=False) if info["ru"] is not None else None,
+         datetime.now().isoformat(timespec="seconds")),
     )
     conn.commit()
+    _localize(info)
     return info
+
+
+def label(info: dict | None, apiname: str, fallback: str = "") -> str:
+    """Название достижения для показа: русское, если есть, иначе английское."""
+    if not info:
+        return fallback
+    ru = (info.get("ru") or {}).get(apiname)
+    if ru:
+        return ru[0]
+    return next((n for a, n, _ in info["all"] if a == apiname), fallback)
 
 
 def set_manual(conn, appid: int, apiname: str | None):

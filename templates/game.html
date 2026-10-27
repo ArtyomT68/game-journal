@@ -27,7 +27,7 @@
     {% if game.story_done_on %}
       <div class="story-plate" title="Определено по достижению Steam">
         🏁 Сюжет пройден {{ game.story_done_on | ru_date }}
-        <small>достижение «{{ game.story_ach }}»</small>
+        <small>достижение «{{ story_label or game.story_ach }}»</small>
       </div>
     {% endif %}
     {% if game.auto_added %}<div class="steamline muted">Добавлена автоматически при синхронизации Steam</div>{% endif %}
@@ -51,10 +51,10 @@
       {% endif %}
       {% if is_playing %}
         <div class="f"><label for="started_on">Начал проходить</label>
-          <input class="input" id="started_on" type="date" name="started_on" value="{{ val('started_on', game.started_on) }}"></div>
+          <input class="input" id="started_on" type="date" name="started_on" min="{{ min_date_iso }}" max="{{ today_iso }}" value="{{ val('started_on', game.started_on) }}"></div>
       {% elif not is_wish %}
         <div class="f"><label for="completed_on">Дата прохождения</label>
-          <input class="input" id="completed_on" type="date" name="completed_on" value="{{ val('completed_on', game.completed_on) }}"></div>
+          <input class="input" id="completed_on" type="date" name="completed_on" min="{{ min_date_iso }}" max="{{ today_iso }}" value="{{ val('completed_on', game.completed_on) }}"></div>
         <div class="f"><label for="times">Количество прохождений</label>
           <div class="stepper">
             <button type="button" data-step="-1">−</button>
@@ -172,8 +172,12 @@
       <select name="apiname">
         <option value="">— определять автоматически —</option>
         {% for api, name, desc in finale.all %}
-          <option value="{{ api }}" {{ 'selected' if finale.method == 'manual' and api in finale.finals }}>
-            {{ name }}{% if desc %} — {{ desc[:90] }}{% endif %}</option>
+          {# названия и описания — из русской версии Steam, если перевод есть #}
+          {% set ru = (finale.ru or {}).get(api) %}
+          {% set ru_name, ru_desc = (ru[0], ru[1] or desc) if ru else (name, desc) %}
+          <option value="{{ api }}" {{ 'selected' if finale.method == 'manual' and api in finale.finals }}
+                  title="{{ name }}{% if desc %} — {{ desc }}{% endif %}">
+            {{ ru_name }}{% if ru_desc %} — {{ ru_desc[:90] }}{% endif %}</option>
         {% endfor %}
       </select>
       <button class="btn ghost small">Сохранить финал</button>

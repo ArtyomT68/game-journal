@@ -141,14 +141,21 @@ def parse_int(text: str, lo: int, hi: int, field: str) -> int | None:
     return value
 
 
+MIN_DATE = date(1970, 1, 1)
+
+
 def parse_date(text: str, what: str = "прохождения") -> str | None:
+    """Дата из поля формы: только ГГГГ-ММ-ДД, с 1970 года и не позже сегодняшнего дня."""
     text = (text or "").strip()
     if not text:
         return None
     try:
-        return date.fromisoformat(text).isoformat()
+        value = date.fromisoformat(text)
     except ValueError:
         raise ValueError(f"Неверная дата {what}.") from None
+    if not MIN_DATE <= value <= date.today():
+        raise ValueError(f"Дата {what} должна быть с {MIN_DATE:%d.%m.%Y} по сегодняшний день.")
+    return value.isoformat()
 
 
 def save_uploaded_cover(file) -> str | None:
@@ -224,7 +231,8 @@ def register_routes(app: Flask):
     def nav_counts():
         counts = dict(get_db().execute(
             "SELECT status, COUNT(*) FROM games WHERE status != 'completed' GROUP BY status").fetchall())
-        return {"playing_count": counts.get("playing", 0), "wishlist_count": counts.get("wishlist", 0)}
+        return {"playing_count": counts.get("playing", 0), "wishlist_count": counts.get("wishlist", 0),
+                "today_iso": date.today().isoformat(), "min_date_iso": MIN_DATE.isoformat()}
 
     @app.get("/")
     def index():
@@ -582,6 +590,7 @@ def register_routes(app: Flask):
                 flash("Укажи название игры.", "error")
                 return render_template("new_game.html", form=request.form, status=form_status())
             try:
+                release_year = parse_int(request.form.get("release_year"), 1950, date.today().year + 5, "Год выхода")
                 cover = save_uploaded_cover(request.files.get("cover_file"))
             except ValueError as exc:
                 flash(str(exc), "error")
@@ -591,7 +600,7 @@ def register_routes(app: Flask):
             db = get_db()
             game_id = insert_game(
                 db, form_status(), title=title, cover=cover,
-                release_year=request.form.get("release_year") or None,
+                release_year=release_year,
                 developer=request.form.get("developer", "").strip() or None,
                 genres=request.form.get("genres", "").strip() or None,
             )
@@ -680,11 +689,15 @@ def register_routes(app: Flask):
                 return redirect(url_for("playing"))
             flash("Сохранено.", "ok")
             return redirect(url_for(STATUS_PAGES[game["status"]]))
-        finale_info = None
+        finale_info, story_label = None, game["story_ach"]
         if game["steam_appid"]:
-            finale_info = story.get_info(get_db(), get_setting("steam_api_key"), game["steam_appid"])
+            finale_info = story.get_info(get_db(), get_setting("steam_api_key"), game["steam_appid"], russian=True)
+            # плашка: название финала по-русски, даже если оно сохранено синхронизацией по-английски
+            if finale_info and game["story_ach"]:
+                en_to_api = {n: a for a, n, _ in finale_info["all"]}
+                story_label = story.label(finale_info, en_to_api.get(game["story_ach"], ""), game["story_ach"])
         return render_template("game.html", game=game, form=None, is_new=request.args.get("new"),
-                               finale=finale_info, finale_labels=story.METHOD_LABELS)
+                               finale=finale_info, finale_labels=story.METHOD_LABELS, story_label=story_label)
 
     @app.post("/games/<int:game_id>/finale")
     def set_finale(game_id):
@@ -695,7 +708,7 @@ def register_routes(app: Flask):
         db = get_db()
         story.set_manual(db, game["steam_appid"], request.form.get("apiname") or None)
         key, steamid = get_setting("steam_api_key"), get_setting("steam_id")
-        info = story.get_info(db, key, game["steam_appid"])
+        info = story.get_info(db, key, game["steam_appid"], russian=True)
         finale = None
         if key and steamid:
             ach = steam_sync.achievements(key, steamid, game["steam_appid"])

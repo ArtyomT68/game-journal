@@ -20,6 +20,7 @@ import re
 import sqlite3
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import requests
@@ -32,6 +33,8 @@ TOP_TAGS_PER_GAME = 15
 PROFILE_TAGS_FIXED = 6       # самые любимые теги — по ним ищем всегда
 PROFILE_TAGS_RANDOM = 4      # плюс несколько случайных из следующих — чтобы выдача менялась
 CANDIDATES_TO_CHECK = 70     # сколько кандидатов проверять по полным тегам
+NEW_PER_REFRESH = 25         # из них — не больше стольких новых (их теги грузятся из SteamSpy по секунде)
+LISTING_TTL = 12 * 3600      # списки игр по тегам меняются редко — кэшируем на 12 часов
 RESULTS = 30
 SHOWN_PENALTY = 0.85         # показ в прошлой выдаче немного снижает место игры (разнообразие при обновлении)
 JITTER = 0.08                # небольшая случайность в оценке: ±8%
@@ -205,11 +208,39 @@ def get_status(conn) -> dict:
 
 # ---------------------------------------------------------------- SteamSpy
 
+_last_spy = 0.0
+_listings: dict[str, tuple[float, dict]] = {}
+
+
 def _spy(params: dict) -> dict:
-    time.sleep(REQUEST_PAUSE)
+    """Запрос к SteamSpy не чаще раза в секунду: ждём только остаток секунды с прошлого запроса
+    (сам запрос тоже длится около секунды, так что лишних пауз почти нет)."""
+    global _last_spy
+    wait = REQUEST_PAUSE - (time.monotonic() - _last_spy)
+    if wait > 0:
+        time.sleep(wait)
+    _last_spy = time.monotonic()
     resp = requests.get(STEAMSPY, params=params, timeout=60)
     resp.raise_for_status()
     return resp.json()
+
+
+def tag_listing(tag: str) -> dict:
+    """Все игры с тегом (SteamSpy), с кэшем на 12 часов."""
+    hit = _listings.get(tag)
+    if hit and time.time() - hit[0] < LISTING_TTL:
+        return hit[1]
+    listing = _spy({"request": "tag", "tag": tag})
+    _listings[tag] = (time.time(), listing)
+    return listing
+
+
+def _fetch_year(appid: int) -> int | None:
+    """Год выхода из Steam Store без записи в базу — для параллельной загрузки."""
+    try:
+        return catalog.steam_details(appid).get("release_year") or 0
+    except (requests.RequestException, ValueError):
+        return None
 
 
 def game_tags(conn, appid: int) -> dict | None:
@@ -364,7 +395,7 @@ def compute(db_path) -> None:
         for i, tag in enumerate(search_tags, 1):
             progress(f"Ищу игры по тегу «{tag_ru(tag)}» ({i} из {len(search_tags)})")
             try:
-                listing = _spy({"request": "tag", "tag": tag})
+                listing = tag_listing(tag)
             except (requests.RequestException, ValueError):
                 continue
             for item in listing.values():
@@ -388,7 +419,13 @@ def compute(db_path) -> None:
                     * production_factor(c.get("price"), mostly_big_games)
                     * shown_penalty(shown.get(appid, 0)) * random.uniform(0.85, 1.15))
 
-        shortlist = sorted(candidates.items(), key=lambda kv: -coarse(kv))[:CANDIDATES_TO_CHECK]
+        # новые кандидаты дороги (теги из SteamSpy — по секунде на игру), поэтому за одно обновление
+        # проверяем не больше NEW_PER_REFRESH новых, остальные — из кэша; кэш растёт с каждым разом
+        cached = {r[0] for r in conn.execute("SELECT appid FROM steam_tags")}
+        ranked = sorted(candidates.items(), key=lambda kv: -coarse(kv))
+        fresh_ones = [kv for kv in ranked if kv[0] not in cached][:NEW_PER_REFRESH]
+        known_ones = [kv for kv in ranked if kv[0] in cached][:CANDIDATES_TO_CHECK - len(fresh_ones)]
+        shortlist = sorted(fresh_ones + known_ones, key=lambda kv: -coarse(kv))
         in_shortlist = {appid for appid, _ in shortlist}
         for appid, name, rating_, reviews in conn.execute(
                 "SELECT appid, name, rating, reviews FROM recommendations").fetchall():
@@ -397,6 +434,11 @@ def compute(db_path) -> None:
                 shortlist.append((appid, {"name": name, "pos": pos, "neg": reviews - pos, "coarse": 0.0}))
 
         idf = tag_idf(conn)
+        # годы выхода — из Steam Store, это другой сервис: грузим параллельно, пока идут запросы к SteamSpy
+        no_year = [appid for appid, _ in shortlist if conn.execute(
+            "SELECT 1 FROM steam_tags WHERE appid = ? AND release_year IS NOT NULL", (appid,)).fetchone() is None]
+        pool = ThreadPoolExecutor(max_workers=4)
+        years_ahead = {appid: pool.submit(_fetch_year, appid) for appid in no_year}
         results = []
         for i, (appid, c) in enumerate(shortlist, 1):
             progress(f"Сравниваю кандидатов с твоим вкусом: {i} из {len(shortlist)}")
@@ -407,7 +449,14 @@ def compute(db_path) -> None:
             sim = similarity(vec, profile, idf)
             if sim < MIN_MATCH:
                 continue
-            year = release_year(conn, appid)
+            if appid in years_ahead:
+                year = years_ahead.pop(appid).result()
+                if year is not None:
+                    conn.execute("UPDATE steam_tags SET release_year = ? WHERE appid = ?", (year, appid))
+                    conn.commit()
+                year = year or None
+            else:
+                year = release_year(conn, appid)
             if min_year and year and year < min_year:
                 continue
             r = rating(c)
@@ -422,6 +471,7 @@ def compute(db_path) -> None:
                                     json.dumps([tag_ru(t) for t in shared], ensure_ascii=False),
                                     json.dumps([s[0] for s in similar], ensure_ascii=False), year)))
 
+        pool.shutdown(wait=False, cancel_futures=True)
         results.sort(key=lambda x: -x[0])
         # не больше двух игр одной серии
         rows = pick_diverse([row for _, row in results], key=lambda r: same_game_key(r[1]), per_group=1)
