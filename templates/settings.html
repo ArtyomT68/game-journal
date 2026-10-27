@@ -1,5 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Настройки — Game Journal<div class="panel narrow backup-panel" id="backup">
+{% block title %}Настройки — Game Journal{% endblock %}
+{% block content %}
+<div class="panel narrow">
+  <h2>Настройки</h2>
+  <form method="post" class="fields">
+    <div class="f wide"><label for="steam_api_key">Ключ Steam Web API</label>
+      <input class="input" id="steam_api_key" name="steam_api_key" type="password" autocomplete="off" value="{{ steam_api_key }}">
+      <p class="hint">Получить бесплатно: <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>
+        (в поле «Domain» можно написать <code>localhost</code>).</p></div>
+    <div class="f wide"><label for="steam_id">Профиль Steam</label>
+      <input class="input" id="steam_id" name="steam_id" value="{{ steam_id }}" placeholder="ссылка на профиль, его короткое имя или SteamID64">
+      <p class="hint">В профиле Steam → Редактировать профиль → Приватность: «Сведения об играх» должны быть «Открытые».</p></div>
+    <div class="f wide"><label for="rawg_api_key">Ключ RAWG (необязательно)</label>
+      <input class="input" id="rawg_api_key" name="rawg_api_key" type="password" autocomplete="off" value="{{ rawg_api_key }}">
+      <p class="hint">Добавляет в поиск игры не из Steam — консольные, GOG, Epic. Бесплатно: <a href="https://rawg.io/apidocs" target="_blank" rel="noopener">rawg.io/apidocs</a>.</p></div>
+    <div class="actions wide"><button class="btn" type="submit">Сохранить</button></div>
+  </form>
+</div>
+<div class="panel narrow backup-panel" id="backup">
   <h2>Резервная копия</h2>
   <p class="sub">Все твои данные — игры, статистика, оценки, настройки и обложки — в одном zip-архиве.
     Сохрани его в облако или на другой диск. В архиве есть и ключ Steam API — не выкладывай его в открытый доступ.</p>
@@ -27,23 +45,5 @@
   {% else %}
     <p class="hint">Пока нет — первая появится при следующем запуске сайта.</p>
   {% endif %}
-</div>
-{% endblock %}
-{% block content %}
-<div class="panel narrow">
-  <h2>Настройки</h2>
-  <form method="post" class="fields">
-    <div class="f wide"><label for="steam_api_key">Ключ Steam Web API</label>
-      <input class="input" id="steam_api_key" name="steam_api_key" type="password" autocomplete="off" value="{{ steam_api_key }}">
-      <p class="hint">Получить бесплатно: <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>
-        (в поле «Domain» можно написать <code>localhost</code>).</p></div>
-    <div class="f wide"><label for="steam_id">Профиль Steam</label>
-      <input class="input" id="steam_id" name="steam_id" value="{{ steam_id }}" placeholder="ссылка на профиль, его короткое имя или SteamID64">
-      <p class="hint">В профиле Steam → Редактировать профиль → Приватность: «Сведения об играх» должны быть «Открытые».</p></div>
-    <div class="f wide"><label for="rawg_api_key">Ключ RAWG (необязательно)</label>
-      <input class="input" id="rawg_api_key" name="rawg_api_key" type="password" autocomplete="off" value="{{ rawg_api_key }}">
-      <p class="hint">Добавляет в поиск игры не из Steam — консольные, GOG, Epic. Бесплатно: <a href="https://rawg.io/apidocs" target="_blank" rel="noopener">rawg.io/apidocs</a>.</p></div>
-    <div class="actions wide"><button class="btn" type="submit">Сохранить</button></div>
-  </form>
 </div>
 {% endblock %}
